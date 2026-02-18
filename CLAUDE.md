@@ -108,3 +108,13 @@ docker-compose.yml → Local dev: api + db + redis
 - Environment variables via pydantic-settings (`.env` file)
 - Alembic for database migrations
 - SQLAlchemy async (asyncpg driver)
+
+## Session Log
+
+### 2026-02-17 — Phase 1 Scaffolding (IN PROGRESS)
+**Status:** Building foundational project files. Nothing committed yet — `backend/` is untracked.
+**Last action:** Created `backend/Dockerfile`
+- `backend/pyproject.toml`: uv project, Python 3.13, all deps + ruff/pytest config
+- `docker-compose.yml`: api (uvicorn --reload), db (pgvector/pgvector:pg16, healthcheck), redis (7-alpine)
+- `backend/Dockerfile`: python:3.13-slim, uv install, copies app/alembic/alembic.ini, CMD uvicorn
+**Next:** .env.example → .gitignore → config.py → database.py → main.py → alembic setup
