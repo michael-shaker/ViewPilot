@@ -16,6 +16,16 @@ Build a portfolio-differentiating YouTube analytics platform that uses the YouTu
 6. **Nuxt frontend** — auth flow, basic dashboard with video table, sorting, filtering
 7. **Scheduled refresh** — background job to re-fetch stats periodically
 
+## Core Analysis Philosophy — Recency Window
+
+All comparisons operate within a **recency window** of the N most recent videos by publish date. Never compare globally across all videos — early videos reflect lower skill/production quality and would skew results meaninglessly.
+
+- **Window size:** configurable (default 50). Options: 20, 50, 100.
+- **Broad split:** top 50% vs bottom 50% within the window
+- **Extreme split:** top 10–20% vs bottom 10–20% within the window
+- **Ranking metric:** views (primary), watch time (secondary)
+- This ensures comparisons are between videos made in the same era — same skill level, same audience size, same production quality. Insights are actionable and relevant to the channel *right now*.
+
 ## Phase 2: Analytics & Insights
 > Goal: Deep analytics, the "autopsy" features, Analytics API integration.
 
@@ -338,7 +348,7 @@ type Mutation {
 ### Embedding Pipeline
 1. **Model:** `all-MiniLM-L6-v2` via `sentence-transformers` (384-dim vectors, ~80MB model)
 2. **When:** After video import/sync, compute embeddings for any video without one
-3. **What:** Embed `title`, `description` (truncated to 256 tokens), and a `combined` = 0.7*title + 0.3*description weighted average
+3. **What:** Embed `title`, `description` (truncated to 256 tokens), and a `combined` = 0.9*title + 0.1*description weighted average
 4. **Storage:** `video_embeddings` table using pgvector's `VECTOR(384)` type
 5. **Similarity:** Cosine similarity via pgvector `<=>` operator for nearest-neighbor queries
 
