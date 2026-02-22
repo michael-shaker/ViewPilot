@@ -197,3 +197,25 @@ docker-compose.yml → Local dev: api + db + redis
 4. Login at `http://localhost:8000/api/v1/auth/google`
 
 **Next session:** GraphQL API → Nuxt frontend setup → APScheduler background job
+
+### 2026-02-21 — GraphQL API (IN PROGRESS)
+**Status:** Strawberry GraphQL layer started. types file done, schema + main.py wiring still needed.
+
+**Completed:**
+- `backend/app/graphql/types.py` — all Strawberry type definitions: UserType, ChannelType, VideoStatsType, VideoType, VideosPage
+
+**In progress — what still needs to be done:**
+1. `backend/app/graphql/schema.py` — Query class with resolvers for: `me`, `channels`, `channel(id)`, `videos(channelId, ...)`, `video(id)` + `schema = strawberry.Schema(query=Query)`
+2. Update `backend/app/main.py` — add `GraphQLRouter` with a `context_getter` that injects `request` + `db` session, mount at `/graphql`
+
+**Auth pattern for GraphQL resolvers:**
+- Context getter: `async def get_graphql_context(request: Request, db: AsyncSession = Depends(get_db)) -> dict`
+- Resolver auth helper reads `info.context["request"].session.get("user_id")` — same session cookie as REST
+- Raise `PermissionError("not logged in")` if no session (Strawberry converts it to a GraphQL error)
+
+**How to resume:**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
+3. Pick up from writing `backend/app/graphql/schema.py`
+
+**Next after GraphQL:** Nuxt frontend setup → APScheduler background job
