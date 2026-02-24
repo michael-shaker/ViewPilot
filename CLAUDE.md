@@ -9,7 +9,7 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 
 ## Tech Stack (Confirmed Decisions)
 - **Backend:** Python FastAPI — REST (`/api/v1/`) + GraphQL (`/graphql` via Strawberry)
-- **Frontend:** Vue 3 / Nuxt 3 (NOT React/Next — intentionally different for portfolio) + Tailwind CSS
+- **Frontend:** Vue 3 / Nuxt 3 (NOT React/Next — intentionally different for portfolio) + Tailwind CSS — dark mode aesthetic throughout (dark grays/slate, no white backgrounds)
 - **Database:** PostgreSQL with pgvector extension (Supabase free tier in prod, Docker locally)
 - **Cache:** Redis (Upstash free tier in prod, Docker locally) — used for caching expensive ML results (clusters, embeddings, autopsy reports), NOT for rate limiting
 - **Embeddings:** Local sentence-transformers (`all-MiniLM-L6-v2`, 384-dim, ~80MB model, $0 cost, CPU-only)
@@ -220,7 +220,45 @@ docker-compose.yml → Local dev: api + db + redis
 2. `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
 3. GraphQL playground at `http://localhost:8000/graphql`
 
-### Next Session — Nuxt 3 Frontend
+### 2026-02-23 — Nuxt 3 Frontend Built
+
+**Completed:**
+- Full Nuxt 3 frontend scaffolded and running on port 3000
+- Login page with Google OAuth button (dark theme)
+- Dashboard with channel stats bar (subscribers, views, video count, last synced)
+- Video table with sorting by views/likes/comments/date, pagination (25 per page)
+- Sync button, logout button
+- Auth middleware protecting dashboard route
+- Fixed Tailwind v4 conflict — dropped `@nuxtjs/tailwindcss` module, wired Tailwind v3 manually via PostCSS + `assets/css/main.css`
+- Fixed Mac port conflict — Docker DB runs on 5433 instead of 5432
+
+**Key files created:**
+- `frontend/package.json` — nuxt 3, tailwindcss 3.4.17, autoprefixer, postcss
+- `frontend/nuxt.config.ts` — PostCSS tailwind setup, apiBase runtimeConfig
+- `frontend/app.vue` — dark root shell
+- `frontend/assets/css/main.css` — tailwind directives
+- `frontend/pages/index.vue` — login page
+- `frontend/pages/dashboard.vue` — channel stats + video table + sync + logout
+- `frontend/composables/useApi.ts` — fetch wrapper with credentials: include
+- `frontend/composables/useAuth.ts` — user state, fetchMe, logout
+- `frontend/middleware/auth.ts` — route guard
+
+**Blocked on: Google OAuth test user not set up**
+- App is in Testing mode on Google Cloud Console
+- Need to go to APIs & Services → OAuth consent screen → Test users → add your Google email
+- Once done, the full login → dashboard flow should work end to end
+
+**How to resume:**
+1. Terminal 1: `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+2. Terminal 2: `cd frontend && npm run dev`
+3. Open `http://localhost:3000`, click Sign in with Google
+4. After OAuth works, dashboard should show channel stats + video table (DB is empty on this Mac though — need to trigger a sync)
+
+**Next after OAuth is working:**
+- Trigger a sync from the dashboard UI and confirm videos load in the table
+- Then move on to APScheduler background job (auto-refresh every X hours)
+
+### Next Session — Nuxt 3 Frontend (archived plan)
 
 **Goal:** Build the frontend so you can actually log in and see channel data in a browser.
 
