@@ -1,21 +1,21 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.channels import Channel
+from app.models.stats import VideoStats
 from app.models.users import User
 from app.models.videos import Video
-from app.models.stats import VideoStats
 from app.services import youtube as yt
 from app.utils.security import decrypt_token
-from app.utils.youtube_parser import parse_duration, best_thumbnail
-from app.config import settings
+from app.utils.youtube_parser import best_thumbnail, parse_duration
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def sync_channel(db: AsyncSession, user: User) -> Channel:

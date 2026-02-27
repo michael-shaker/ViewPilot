@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -68,7 +68,7 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
     expires_at = None
     if "expires_at" in token:
-        expires_at = datetime.fromtimestamp(token["expires_at"], tz=timezone.utc)
+        expires_at = datetime.fromtimestamp(token["expires_at"], tz=UTC)
 
     user = await get_or_create_user(
         db=db,

@@ -1,8 +1,7 @@
 import uuid
-from typing import Optional
 
 import strawberry
-from sqlalchemy import func, select, desc, asc
+from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from strawberry.types import Info
 
@@ -11,7 +10,7 @@ from app.models.stats import VideoStats
 from app.models.users import User
 from app.models.videos import Video
 
-from .types import ChannelType, UserType, VideoStatsType, VideoType, VideosPage
+from .types import ChannelType, UserType, VideosPage, VideoStatsType, VideoType
 
 SORT_COLUMNS = {
     "views": VideoStats.view_count,
@@ -31,7 +30,7 @@ def _require_user(info: Info) -> uuid.UUID:
     return uuid.UUID(user_id)
 
 
-def _map_video(v: Video, s: Optional[VideoStats], all_stats: list[VideoStats]) -> VideoType:
+def _map_video(v: Video, s: VideoStats | None, all_stats: list[VideoStats]) -> VideoType:
     """converts db rows into the strawberry VideoType."""
     return VideoType(
         id=strawberry.ID(str(v.id)),
@@ -115,7 +114,7 @@ class Query:
         ]
 
     @strawberry.field
-    async def channel(self, info: Info, id: strawberry.ID) -> Optional[ChannelType]:
+    async def channel(self, info: Info, id: strawberry.ID) -> ChannelType | None:
         """returns a single channel by id — only if it belongs to the logged-in user."""
         user_id = _require_user(info)
         db: AsyncSession = info.context["db"]
@@ -203,7 +202,7 @@ class Query:
         )
 
     @strawberry.field
-    async def video(self, info: Info, id: strawberry.ID) -> Optional[VideoType]:
+    async def video(self, info: Info, id: strawberry.ID) -> VideoType | None:
         """returns a single video with its full stats history."""
         user_id = _require_user(info)
         db: AsyncSession = info.context["db"]

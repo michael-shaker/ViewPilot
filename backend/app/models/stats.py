@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
@@ -9,7 +9,7 @@ from app.database import Base
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class VideoStats(Base):

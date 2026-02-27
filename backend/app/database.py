@@ -24,6 +24,6 @@ class Base(DeclarativeBase):
 
 
 # hands a fresh db session to each route, then closes it when the request is done
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_db() -> AsyncGenerator[AsyncSession]:
     async with AsyncSessionLocal() as session:
         yield session

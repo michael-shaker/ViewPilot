@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 import strawberry
 
@@ -9,7 +8,7 @@ class UserType:
     id: strawberry.ID
     email: str
     name: str
-    picture_url: Optional[str]
+    picture_url: str | None
 
 
 @strawberry.type
@@ -17,14 +16,14 @@ class ChannelType:
     id: strawberry.ID
     youtube_channel_id: str
     title: str
-    description: Optional[str]
-    custom_url: Optional[str]
-    thumbnail_url: Optional[str]
-    subscriber_count: Optional[int]
-    video_count: Optional[int]
-    view_count: Optional[int]
-    published_at: Optional[datetime]
-    last_synced_at: Optional[datetime]
+    description: str | None
+    custom_url: str | None
+    thumbnail_url: str | None
+    subscriber_count: int | None
+    video_count: int | None
+    view_count: int | None
+    published_at: datetime | None
+    last_synced_at: datetime | None
 
 
 @strawberry.type
@@ -40,15 +39,15 @@ class VideoType:
     id: strawberry.ID
     youtube_video_id: str
     title: str
-    description: Optional[str]
+    description: str | None
     published_at: datetime
-    duration_seconds: Optional[int]
+    duration_seconds: int | None
     is_short: bool
-    thumbnail_url: Optional[str]
-    tags: Optional[list[str]]
-    category_id: Optional[str]
-    default_language: Optional[str]
-    latest_stats: Optional[VideoStatsType]
+    thumbnail_url: str | None
+    tags: list[str] | None
+    category_id: str | None
+    default_language: str | None
+    latest_stats: VideoStatsType | None
     stats_history: list[VideoStatsType]
 
 

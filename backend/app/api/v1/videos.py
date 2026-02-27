@@ -1,14 +1,14 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc, asc
+from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.channels import Channel
-from app.models.videos import Video
 from app.models.stats import VideoStats
 from app.models.users import User
+from app.models.videos import Video
 from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/videos", tags=["videos"])
