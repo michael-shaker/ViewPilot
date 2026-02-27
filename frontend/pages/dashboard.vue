@@ -118,7 +118,10 @@ const sortIcon = (col: string) => {
     <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
       <span class="text-lg font-bold tracking-tight">ViewPilot</span>
       <div class="flex items-center gap-4">
-        <span class="text-sm text-gray-400">{{ user?.name }}</span>
+        <div class="flex items-center gap-2">
+          <img v-if="user?.picture_url" :src="user.picture_url" class="h-7 w-7 rounded-full" />
+          <span class="text-sm text-gray-400">{{ user?.name }}</span>
+        </div>
         <button @click="logout" class="text-sm text-gray-400 hover:text-white transition">Logout</button>
       </div>
     </header>

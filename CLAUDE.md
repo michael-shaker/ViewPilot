@@ -219,7 +219,7 @@ docker-compose.yml → Local dev: api + db + redis
   (use `--reload-dir app` to avoid watchfiles going crazy on the .venv folder)
 
 **How to resume:**
-1. Docker Desktop running → `docker compose up -d db redis` (DB on port 5433)
+1. Docker Desktop running → `docker compose up -d db redis` (DB on port 5434 — changed from 5433 to avoid Windows local postgres conflict)
 2. `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
 3. GraphQL playground at `http://localhost:8000/graphql`
 
@@ -260,6 +260,35 @@ docker-compose.yml → Local dev: api + db + redis
 **Next after OAuth is working:**
 - Trigger a sync from the dashboard UI and confirm videos load in the table
 - Then move on to APScheduler background job (auto-refresh every X hours)
+
+### 2026-02-27 — Frontend Fully Working + Bug Fixes
+
+**Status:** End-to-end login → dashboard flow confirmed working on Windows PC.
+
+**Bugs fixed:**
+- `backend/app/main.py` — CORS middleware had `allow_credentials=not settings.debug` (backwards — blocked cookies in dev). Fixed to always allow credentials. Also changed `allow_origins` from `["*"]` to `["http://localhost:3000"]` in dev — wildcard can't be used with credentials.
+- `docker-compose.yml` — Docker DB port changed from 5433 to **5434** to avoid conflict with a local PostgreSQL installation running on 5433 on the Windows machine.
+- `.env.example` — updated DB port to 5434 with explanatory comment.
+- `frontend/pages/dashboard.vue` — video table page size reduced from 25 to 10. Profile picture added to nav bar (data was already flowing from Google, just never rendered).
+
+**Windows dev environment notes:**
+- Local PostgreSQL is installed and runs on port 5433 — Docker must use a different port (5434)
+- npm packages must be installed first: `cd frontend && npm install` then `npm run dev`
+- PowerShell doesn't support `&&` — run commands separately or use `;`
+- `.env` file must be created manually (gitignored) — copy from `.env.example` and fill in secrets
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis` (DB on port 5434)
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+**Still pending (small fixes):**
+- `nuxt.config.ts` — API base hardcoded to `http://localhost:8000`, needs env var for prod
+- `dashboard.vue` — no try/catch on API calls (blank screen on errors)
+- `useAuth.ts` — logout silently swallows errors
+
+**Next:** Above small fixes → then Phase 2 (YouTube Analytics API, view velocity, Best vs Worst Autopsy)
 
 ### Next Session — Nuxt 3 Frontend (archived plan)
 
