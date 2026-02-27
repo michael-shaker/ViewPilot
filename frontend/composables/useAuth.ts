@@ -23,8 +23,13 @@ export const useAuth = () => {
   }
 
   // clear session on backend + wipe local state
+  // always navigates home even if the server call fails — no point staying logged in locally
   const logout = async () => {
-    await api('/api/v1/auth/logout', { method: 'POST' })
+    try {
+      await api('/api/v1/auth/logout', { method: 'POST' })
+    } catch {
+      console.warn('logout request failed — clearing local session anyway')
+    }
     user.value = null
     await navigateTo('/')
   }

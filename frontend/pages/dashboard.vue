@@ -38,6 +38,7 @@ const channel = ref<Channel | null>(null)
 const videos = ref<Video[]>([])
 const totalVideos = ref(0)
 const syncing = ref(false)
+const loadError = ref<string | null>(null)
 const sortBy = ref('published_at')
 const order = ref('desc')
 const page = ref(1)
@@ -49,20 +50,28 @@ onMounted(async () => {
 })
 
 const loadChannel = async () => {
-  const channels = await api<Channel[]>('/api/v1/channels')
-  if (channels.length > 0) {
-    channel.value = channels[0]
-    await loadVideos()
+  try {
+    const channels = await api<Channel[]>('/api/v1/channels')
+    if (channels.length > 0) {
+      channel.value = channels[0]
+      await loadVideos()
+    }
+  } catch (e) {
+    loadError.value = 'failed to load channel — is the backend running?'
   }
 }
 
 const loadVideos = async () => {
   if (!channel.value) return
-  const data = await api<VideosResponse>(
-    `/api/v1/videos?channel_id=${channel.value.id}&sort_by=${sortBy.value}&order=${order.value}&page=${page.value}&per_page=${perPage}`
-  )
-  videos.value = data.videos
-  totalVideos.value = data.total
+  try {
+    const data = await api<VideosResponse>(
+      `/api/v1/videos?channel_id=${channel.value.id}&sort_by=${sortBy.value}&order=${order.value}&page=${page.value}&per_page=${perPage}`
+    )
+    videos.value = data.videos
+    totalVideos.value = data.total
+  } catch (e) {
+    loadError.value = 'failed to load videos'
+  }
 }
 
 const sync = async () => {
@@ -159,6 +168,9 @@ const sortIcon = (col: string) => {
           {{ syncing ? 'Syncing...' : 'Sync' }}
         </button>
       </div>
+
+      <!-- error state -->
+      <div v-else-if="loadError" class="text-center text-red-400 py-20">{{ loadError }}</div>
 
       <!-- loading state -->
       <div v-else class="text-center text-gray-500 py-20">Loading channel...</div>
