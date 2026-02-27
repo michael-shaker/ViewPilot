@@ -4,6 +4,9 @@
 - **Before writing any file or making any change**, give a short plain-English paragraph explaining what it does and why — like explaining to someone who isn't a developer. One paragraph max, no jargon.
 - Keep all code comments lowercase and natural/conversational, not formal or technical-sounding.
 
+## Git Commits (ALWAYS FOLLOW)
+- **NEVER add a Co-Authored-By line** — commits are always authored by Michael Shaker only, no Claude attribution.
+
 ## What This Is
 A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + Analytics API to analyze channel performance, detect patterns in top vs bottom performing videos, and provide AI-powered title optimization and clustering.
 

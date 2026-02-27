@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
 
+import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 from strawberry.fastapi import GraphQLRouter
 
 from app.api.v1 import router as api_router
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, engine
 from app.graphql.schema import schema
 
 
@@ -50,4 +52,24 @@ app.include_router(graphql_router, prefix="/graphql")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    checks = {}
+
+    # check postgres — just run a trivial query
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e}"
+
+    # check redis — ping it
+    try:
+        r = aioredis.from_url(settings.redis_url)
+        await r.ping()
+        await r.aclose()
+        checks["redis"] = "ok"
+    except Exception as e:
+        checks["redis"] = f"error: {e}"
+
+    overall = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    return {"status": overall, **checks}
