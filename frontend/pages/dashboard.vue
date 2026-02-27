@@ -39,6 +39,7 @@ const videos = ref<Video[]>([])
 const totalVideos = ref(0)
 const syncing = ref(false)
 const loadError = ref<string | null>(null)
+const syncError = ref<string | null>(null)
 const sortBy = ref('published_at')
 const order = ref('desc')
 const page = ref(1)
@@ -76,9 +77,12 @@ const loadVideos = async () => {
 
 const sync = async () => {
   syncing.value = true
+  syncError.value = null
   try {
     await api('/api/v1/channels/sync', { method: 'POST' })
     await loadChannel()
+  } catch {
+    syncError.value = 'sync failed — try again in a moment'
   } finally {
     syncing.value = false
   }
@@ -160,13 +164,16 @@ const sortIcon = (col: string) => {
             <p class="text-xs text-gray-400 mt-0.5">Videos</p>
           </div>
         </div>
-        <button
-          @click="sync"
-          :disabled="syncing"
-          class="ml-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition"
-        >
-          {{ syncing ? 'Syncing...' : 'Sync' }}
-        </button>
+        <div class="ml-4 flex flex-col items-end gap-1">
+          <button
+            @click="sync"
+            :disabled="syncing"
+            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition"
+          >
+            {{ syncing ? 'Syncing...' : 'Sync' }}
+          </button>
+          <span v-if="syncError" class="text-xs text-red-400">{{ syncError }}</span>
+        </div>
       </div>
 
       <!-- error state -->
