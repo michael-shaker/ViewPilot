@@ -143,10 +143,10 @@ const formatCtr = (ctr: number | null) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-950 text-white">
+  <div class="min-h-screen text-white">
 
     <!-- top nav -->
-    <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+    <header class="border-b border-white/10 px-6 py-4 flex items-center justify-between">
       <span class="text-lg font-bold tracking-tight">ViewPilot</span>
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-2">
@@ -160,7 +160,7 @@ const formatCtr = (ctr: number | null) => {
     <main class="max-w-6xl mx-auto px-6 py-8">
 
       <!-- channel stats bar -->
-      <div v-if="channel" class="bg-gray-900 rounded-xl p-6 mb-8 flex items-center gap-6">
+      <div v-if="channel" class="bg-white/5 ring-1 ring-white/10 rounded-xl p-6 mb-8 flex items-center gap-6">
         <img v-if="channel.thumbnail_url" :src="channel.thumbnail_url" class="h-14 w-14 rounded-full" />
         <div class="flex-1">
           <h2 class="text-xl font-semibold">{{ channel.title }}</h2>
@@ -201,9 +201,9 @@ const formatCtr = (ctr: number | null) => {
       <div v-else class="text-center text-gray-500 py-20">Loading channel...</div>
 
       <!-- video table -->
-      <div v-if="videos.length" class="bg-gray-900 rounded-xl overflow-hidden">
+      <div v-if="videos.length" class="bg-white/5 ring-1 ring-white/10 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
-          <thead class="border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wider">
+          <thead class="border-b border-gray-700/50 text-gray-400 text-xs uppercase tracking-wider">
             <tr>
               <th class="text-left px-4 py-3">Video</th>
               <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('published_at')">
@@ -223,7 +223,7 @@ const formatCtr = (ctr: number | null) => {
           <tbody>
             <template v-for="v in videos" :key="v.id">
               <!-- main row -->
-              <tr class="border-t border-gray-800 hover:bg-gray-800/40 transition">
+              <tr class="border-t border-gray-700/50 hover:bg-white/5 transition">
                 <td class="px-4 pt-3 pb-1 flex items-center gap-3 max-w-sm">
                   <img v-if="v.thumbnail_url" :src="v.thumbnail_url" class="h-10 w-16 rounded object-cover shrink-0" />
                   <span class="truncate text-gray-100">{{ v.title }}</span>
@@ -234,11 +234,11 @@ const formatCtr = (ctr: number | null) => {
                 <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
               </tr>
               <!-- analytics sub-row -->
-              <tr class="border-b border-gray-800 bg-gray-950/60">
+              <tr class="border-b border-white/5 bg-black/10">
                 <td colspan="5" class="px-4 pb-2.5 pt-0">
                   <div class="flex items-center gap-6 text-xs text-gray-500 pl-[76px]">
                     <span>
-                      Views/day: <span class="text-gray-400">{{ formatNum(v.views_per_day) }}</span>
+                      Views per day: <span class="text-gray-400">{{ formatNum(v.views_per_day) }}</span>
                     </span>
                     <span>
                       Avg watch: <span class="text-gray-400">{{ formatDuration(v.average_view_duration_seconds) }}</span>
@@ -257,7 +257,7 @@ const formatCtr = (ctr: number | null) => {
         </table>
 
         <!-- pagination -->
-        <div class="border-t border-gray-800 px-4 py-3 flex items-center justify-between text-sm text-gray-400">
+        <div class="border-t border-gray-700/50 px-4 py-3 flex items-center justify-between text-sm text-gray-400">
           <span>{{ totalVideos }} videos — page {{ page }} of {{ totalPages }}</span>
           <div class="flex gap-2">
             <button @click="prevPage" :disabled="page === 1" class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition">←</button>

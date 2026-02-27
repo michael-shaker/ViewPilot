@@ -47,7 +47,7 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 
 ## Current Progress
 
-### Phase 1: Foundation (MVP Core) — IN PROGRESS
+### Phase 1: Foundation (MVP Core) — COMPLETE
 - [x] Plan created and approved
 - [x] Project scaffolding (pyproject.toml, docker-compose.yml, Dockerfile, .gitignore, .env.example)
 - [x] Alembic setup (alembic.ini, env.py, migrations folder, initial migration run successfully)
@@ -56,12 +56,13 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - [x] Video data import pipeline — sync working, 223 videos imported from channel
 - [x] Basic REST API — /auth, /channels, /channels/sync, /videos, /videos/{id}
 - [x] GraphQL API (Strawberry)
-- [ ] Nuxt frontend (auth flow, dashboard, video table)
-- [ ] Scheduled refresh (APScheduler background job)
+- [x] Nuxt frontend (auth flow, dashboard, video table)
+- [x] Scheduled refresh (APScheduler — syncs all users every 6 hours automatically)
 
-### Phase 2: Analytics & Insights — NOT STARTED
-- [ ] YouTube Analytics API integration (CTR, avg view duration, traffic sources)
-- [ ] View velocity calculations (views/day, first 24h/7d performance)
+### Phase 2: Analytics & Insights — IN PROGRESS
+- [x] YouTube Analytics API integration (avg view duration, estimated minutes watched — live in DB)
+- [x] YouTube Reporting API integration (impressions + CTR via daily CSV — job created, data pending 24-48h)
+- [x] View velocity — views per day since publish, shown in dashboard sub-row
 - [ ] Best vs Worst Autopsy (top 10% vs bottom 10% pattern detection)
 - [ ] Dashboard enhancements (charts, sparklines, date range filters)
 - [ ] Video detail view
@@ -287,12 +288,38 @@ docker-compose.yml → Local dev: api + db + redis
 3. Terminal 2: `cd frontend` then `npm run dev`
 4. Open `http://localhost:3000`
 
-**Still pending (small fixes):**
-- `nuxt.config.ts` — API base hardcoded to `http://localhost:8000`, needs env var for prod
-- `dashboard.vue` — no try/catch on API calls (blank screen on errors)
-- `useAuth.ts` — logout silently swallows errors
+**Next:** Phase 2 (YouTube Analytics API, view velocity, Best vs Worst Autopsy)
 
-**Next:** Above small fixes → then Phase 2 (YouTube Analytics API, view velocity, Best vs Worst Autopsy)
+### 2026-02-27 (Part 2) — Phase 2 Analytics + Scheduler + UI Polish
+
+**Completed:**
+- `backend/app/services/youtube.py` — added YouTube Analytics API client (`get_channel_analytics`), YouTube Reporting API client (`ensure_reach_job`, `download_reach_reports`). Analytics returns per-video views/avg_duration/estimated_minutes. Reporting API downloads daily CSV files for impressions + CTR.
+- `backend/app/services/sync.py` — added `_sync_analytics()` with two independent steps: step A = Analytics API (watch time metrics), step B = Reporting API (impressions/CTR from CSVs). Each step has its own try/except so one failure doesn't kill the other.
+- `backend/app/api/v1/videos.py` — added `VideoAnalytics` to the list query via outer join, added `views_per_day` calculated field (view_count ÷ days since publish), now returns `click_through_rate`, `impressions`, `average_view_duration_seconds`, `average_view_percentage` per video.
+- `backend/app/jobs/scheduler.py` — new file. APScheduler running inside FastAPI process, syncs all users every 6 hours automatically. Each user gets their own DB session.
+- `backend/app/main.py` — wired scheduler start/stop into FastAPI lifespan hook.
+- `frontend/pages/dashboard.vue` — added analytics sub-row under each video (views per day, avg watch time, CTR, impressions). Used `<template v-for>` to render two rows per video. Added `formatDuration` (seconds → m:ss) and `formatCtr` helpers. Card backgrounds changed to `bg-white/5 ring-1 ring-white/10` (glass effect).
+- `frontend/assets/css/main.css` — set `viewpilot_background.png` as the body background (`background-size: 100% 100%`, fixed attachment).
+- `frontend/public/viewpilot_background.png` — background image added to static assets.
+
+**Analytics data status:**
+- `average_view_duration_seconds` — ✅ live, showing real values (e.g. 4:34) on dashboard
+- `views_per_day` — ✅ live, calculated on the fly from view_count + published_at
+- `impressions` + `click_through_rate` — ⏳ pending, Reporting API job just created, Google takes 24-48h to generate first CSVs. Will populate on next sync after that.
+
+**⚠️ Known issue — dashboard background not showing:**
+- Background image shows correctly on the login page but appears dark/wrong on the dashboard
+- The image (`viewpilot_background.png`) is a dark navy image with YouTube icons around the edges — the center is nearly black, so on a full-page layout the content covers the interesting parts
+- Currently trying: `bg-white/5` glass cards, `background-size: 100% 100%` to stretch the image edge-to-edge
+- **Next thing to fix:** get the background image fully visible on the dashboard like it is on the login page
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev` (full restart needed after CSS changes)
+4. Open `http://localhost:3000`
+
+**Next:** Fix dashboard background → Best vs Worst Autopsy → Video detail page
 
 ### Next Session — Nuxt 3 Frontend (archived plan)
 
