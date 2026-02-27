@@ -41,7 +41,7 @@ const syncing = ref(false)
 const sortBy = ref('published_at')
 const order = ref('desc')
 const page = ref(1)
-const perPage = 25
+const perPage = 10
 
 // load channel then videos on mount
 onMounted(async () => {

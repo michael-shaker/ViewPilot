@@ -29,11 +29,11 @@ app = FastAPI(
 # signs the session cookie so it can't be tampered with
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 
-# lets the nuxt frontend talk to this api — in debug mode allow all origins for easy local testing
+# lets the nuxt frontend talk to this api — cookies require an explicit origin list, never wildcard
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.debug else [settings.frontend_url],
-    allow_credentials=not settings.debug,
+    allow_origins=["http://localhost:3000"] if settings.debug else [settings.frontend_url],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
