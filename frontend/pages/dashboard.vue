@@ -25,6 +25,10 @@ interface Video {
   view_count: number
   like_count: number
   comment_count: number
+  click_through_rate: number | null
+  impressions: number | null
+  average_view_duration_seconds: number | null
+  average_view_percentage: number | null
 }
 
 interface VideosResponse {
@@ -122,6 +126,19 @@ const sortIcon = (col: string) => {
   if (sortBy.value !== col) return '↕'
   return order.value === 'desc' ? '↓' : '↑'
 }
+
+// format seconds into m:ss (e.g. 274 → "4:34")
+const formatDuration = (secs: number | null) => {
+  if (secs == null) return '—'
+  const m = Math.floor(secs / 60)
+  const s = Math.floor(secs % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const formatCtr = (ctr: number | null) => {
+  if (ctr == null) return '—'
+  return (ctr * 100).toFixed(1) + '%'
+}
 </script>
 
 <template>
@@ -202,17 +219,36 @@ const sortIcon = (col: string) => {
               </th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-800">
-            <tr v-for="v in videos" :key="v.id" class="hover:bg-gray-800/50 transition">
-              <td class="px-4 py-3 flex items-center gap-3 max-w-sm">
-                <img v-if="v.thumbnail_url" :src="v.thumbnail_url" class="h-10 w-16 rounded object-cover shrink-0" />
-                <span class="truncate text-gray-100">{{ v.title }}</span>
-              </td>
-              <td class="px-4 py-3 text-center text-gray-400">{{ formatDate(v.published_at) }}</td>
-              <td class="px-4 py-3 text-center">{{ formatNum(v.view_count) }}</td>
-              <td class="px-4 py-3 text-center text-gray-400">{{ formatNum(v.like_count) }}</td>
-              <td class="px-4 py-3 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
-            </tr>
+          <tbody>
+            <template v-for="v in videos" :key="v.id">
+              <!-- main row -->
+              <tr class="border-t border-gray-800 hover:bg-gray-800/40 transition">
+                <td class="px-4 pt-3 pb-1 flex items-center gap-3 max-w-sm">
+                  <img v-if="v.thumbnail_url" :src="v.thumbnail_url" class="h-10 w-16 rounded object-cover shrink-0" />
+                  <span class="truncate text-gray-100">{{ v.title }}</span>
+                </td>
+                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatDate(v.published_at) }}</td>
+                <td class="px-4 pt-3 pb-1 text-center">{{ formatNum(v.view_count) }}</td>
+                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.like_count) }}</td>
+                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
+              </tr>
+              <!-- analytics sub-row -->
+              <tr class="border-b border-gray-800 bg-gray-950/60">
+                <td colspan="5" class="px-4 pb-2.5 pt-0">
+                  <div class="flex items-center gap-6 text-xs text-gray-500 pl-[76px]">
+                    <span>
+                      CTR: <span class="text-gray-400">{{ formatCtr(v.click_through_rate) }}</span>
+                    </span>
+                    <span>
+                      Avg watch: <span class="text-gray-400">{{ formatDuration(v.average_view_duration_seconds) }}</span>
+                    </span>
+                    <span>
+                      Impressions: <span class="text-gray-400">{{ formatNum(v.impressions) }}</span>
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
 

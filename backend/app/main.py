@@ -11,13 +11,16 @@ from app.api.v1 import router as api_router
 from app.config import settings
 from app.database import get_db, engine
 from app.graphql.schema import schema
+from app.jobs.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # runs on startup
+    # runs on startup — kick off the background sync job
+    start_scheduler()
     yield
-    # runs on shutdown
+    # runs on shutdown — stop it cleanly
+    stop_scheduler()
 
 
 app = FastAPI(

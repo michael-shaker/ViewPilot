@@ -1,4 +1,5 @@
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -43,63 +44,115 @@ async def _sync_analytics(
     refresh_token: str | None,
     channel: Channel,
 ) -> None:
-    """fetch analytics for all videos and upsert into video_analytics.
-    called after the main video sync so all videos already exist in the db."""
-    analytics_data = await yt.get_channel_analytics(access_token, refresh_token)
-    if not analytics_data:
-        return
+    """pulls all analytics data for this channel's videos and saves it.
+    split into two independent steps — if one fails the other still runs."""
 
-    # build a lookup from youtube video id → our internal db video id
+    today = datetime.now(UTC).date()
+
+    # shared lookup: youtube video id → our internal db video id
     result = await db.execute(
         select(Video.youtube_video_id, Video.id).where(Video.channel_id == channel.id)
     )
     yt_to_db = {row[0]: row[1] for row in result.all()}
 
-    today = datetime.now(UTC).date()
-
-    for yt_vid_id, data in analytics_data.items():
-        db_vid_id = yt_to_db.get(yt_vid_id)
-        if not db_vid_id:
-            continue  # video not in our db (deleted, private, etc) — skip
-
-        stmt = (
-            pg_insert(VideoAnalytics)
-            .values(
-                id=uuid.uuid4(),
-                video_id=db_vid_id,
-                date=today,
-                views=_safe_int(data.get("views")),
-                estimated_minutes_watched=_safe_float(data.get("estimatedMinutesWatched")),
-                average_view_duration_seconds=_safe_float(data.get("averageViewDuration")),
-                average_view_percentage=_safe_float(data.get("averageViewPercentage")),
-                click_through_rate=_safe_float(data.get("impressionsClickThroughRate")),
-                impressions=_safe_int(data.get("impressions")),
-                likes=_safe_int(data.get("likes")),
-                comments=_safe_int(data.get("comments")),
-                shares=_safe_int(data.get("shares")),
-                subscribers_gained=_safe_int(data.get("subscribersGained")),
-                subscribers_lost=_safe_int(data.get("subscribersLost")),
-                fetched_at=_utcnow(),
+    # ── step a: analytics api (views, avg watch time, avg watch %) ────────────
+    # one api call returns lifetime aggregates for every video at once
+    try:
+        analytics_data = await yt.get_channel_analytics(access_token, refresh_token)
+        for yt_vid_id, data in analytics_data.items():
+            db_vid_id = yt_to_db.get(yt_vid_id)
+            if not db_vid_id:
+                continue
+            stmt = (
+                pg_insert(VideoAnalytics)
+                .values(
+                    id=uuid.uuid4(),
+                    video_id=db_vid_id,
+                    date=today,
+                    views=_safe_int(data.get("views")),
+                    estimated_minutes_watched=_safe_float(data.get("estimatedMinutesWatched")),
+                    average_view_duration_seconds=_safe_float(data.get("averageViewDuration")),
+                    average_view_percentage=_safe_float(data.get("averageViewPercentage")),
+                    likes=_safe_int(data.get("likes")),
+                    comments=_safe_int(data.get("comments")),
+                    shares=_safe_int(data.get("shares")),
+                    subscribers_gained=_safe_int(data.get("subscribersGained")),
+                    subscribers_lost=_safe_int(data.get("subscribersLost")),
+                    fetched_at=_utcnow(),
+                )
+                .on_conflict_do_update(
+                    constraint="uq_video_analytics_video_date",
+                    set_={
+                        "views": _safe_int(data.get("views")),
+                        "estimated_minutes_watched": _safe_float(data.get("estimatedMinutesWatched")),
+                        "average_view_duration_seconds": _safe_float(data.get("averageViewDuration")),
+                        "average_view_percentage": _safe_float(data.get("averageViewPercentage")),
+                        "likes": _safe_int(data.get("likes")),
+                        "comments": _safe_int(data.get("comments")),
+                        "shares": _safe_int(data.get("shares")),
+                        "subscribers_gained": _safe_int(data.get("subscribersGained")),
+                        "subscribers_lost": _safe_int(data.get("subscribersLost")),
+                        "fetched_at": _utcnow(),
+                    },
+                )
             )
-            .on_conflict_do_update(
-                constraint="uq_video_analytics_video_date",
-                set_={
-                    "views": _safe_int(data.get("views")),
-                    "estimated_minutes_watched": _safe_float(data.get("estimatedMinutesWatched")),
-                    "average_view_duration_seconds": _safe_float(data.get("averageViewDuration")),
-                    "average_view_percentage": _safe_float(data.get("averageViewPercentage")),
-                    "click_through_rate": _safe_float(data.get("impressionsClickThroughRate")),
-                    "impressions": _safe_int(data.get("impressions")),
-                    "likes": _safe_int(data.get("likes")),
-                    "comments": _safe_int(data.get("comments")),
-                    "shares": _safe_int(data.get("shares")),
-                    "subscribers_gained": _safe_int(data.get("subscribersGained")),
-                    "subscribers_lost": _safe_int(data.get("subscribersLost")),
-                    "fetched_at": _utcnow(),
-                },
-            )
-        )
-        await db.execute(stmt)
+            await db.execute(stmt)
+        print(f"analytics api: saved data for {len(analytics_data)} videos")
+    except Exception as exc:
+        print(f"analytics api step skipped: {exc}")
+
+    # ── step b: reporting api (impressions + ctr from daily csv reports) ──────
+    # impressions/ctr aren't available in the analytics api — they come from
+    # a separate "reporting api" that generates daily csv files we download.
+    # we sum up all available daily rows to get per-video totals, then
+    # store them alongside the analytics data we just saved above.
+    try:
+        job_id = await yt.ensure_reach_job(access_token, refresh_token)
+        reach_rows = await yt.download_reach_reports(access_token, refresh_token, job_id)
+
+        if reach_rows:
+            # aggregate all daily rows into per-video totals
+            # weighted avg ctr = sum(impressions × ctr) / total impressions
+            total_impressions: dict = defaultdict(int)
+            weighted_ctr: dict = defaultdict(float)
+
+            for row in reach_rows:
+                vid = row["video_id"]
+                total_impressions[vid] += row["impressions"]
+                weighted_ctr[vid] += row["impressions"] * row["ctr"]
+
+            # upsert impressions + ctr into the same row we created in step a
+            # (or create a new row if step a didn't run for this video)
+            for yt_vid_id, imp_total in total_impressions.items():
+                db_vid_id = yt_to_db.get(yt_vid_id)
+                if not db_vid_id:
+                    continue
+                avg_ctr = weighted_ctr[yt_vid_id] / imp_total if imp_total > 0 else None
+                stmt = (
+                    pg_insert(VideoAnalytics)
+                    .values(
+                        id=uuid.uuid4(),
+                        video_id=db_vid_id,
+                        date=today,
+                        impressions=imp_total,
+                        click_through_rate=avg_ctr,
+                        fetched_at=_utcnow(),
+                    )
+                    .on_conflict_do_update(
+                        constraint="uq_video_analytics_video_date",
+                        set_={
+                            "impressions": imp_total,
+                            "click_through_rate": avg_ctr,
+                            "fetched_at": _utcnow(),
+                        },
+                    )
+                )
+                await db.execute(stmt)
+            print(f"reach reports: saved impressions/ctr for {len(total_impressions)} videos")
+        else:
+            print("reach reports: no csv data available yet (job may be newly created — try again tomorrow)")
+    except Exception as exc:
+        print(f"reach reports step skipped: {exc}")
 
 
 async def sync_channel(db: AsyncSession, user: User) -> Channel:
