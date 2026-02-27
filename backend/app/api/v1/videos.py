@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.channels import Channel
-from app.models.stats import VideoStats
+from app.models.stats import VideoAnalytics, VideoStats
 from app.models.users import User
 from app.models.videos import Video
 from app.utils.dependencies import get_current_user
@@ -49,16 +49,32 @@ async def list_videos(
         .subquery()
     )
 
+    # get the most recent analytics row per video (outer join — not all videos have data yet)
+    latest_analytics = (
+        select(
+            VideoAnalytics.video_id,
+            func.max(VideoAnalytics.date).label("latest_date"),
+        )
+        .group_by(VideoAnalytics.video_id)
+        .subquery()
+    )
+
     sort_col = SORT_COLUMNS[sort_by]
     direction = desc if order == "desc" else asc
 
     query = (
-        select(Video, VideoStats)
+        select(Video, VideoStats, VideoAnalytics)
         .join(latest_stats, latest_stats.c.video_id == Video.id)
         .join(
             VideoStats,
             (VideoStats.video_id == Video.id)
             & (VideoStats.fetched_at == latest_stats.c.latest_fetch),
+        )
+        .outerjoin(latest_analytics, latest_analytics.c.video_id == Video.id)
+        .outerjoin(
+            VideoAnalytics,
+            (VideoAnalytics.video_id == Video.id)
+            & (VideoAnalytics.date == latest_analytics.c.latest_date),
         )
         .where(Video.channel_id == channel_id)
         .order_by(direction(sort_col))
@@ -92,8 +108,12 @@ async def list_videos(
                 "like_count": s.like_count,
                 "comment_count": s.comment_count,
                 "stats_fetched_at": s.fetched_at,
+                "click_through_rate": a.click_through_rate if a else None,
+                "impressions": a.impressions if a else None,
+                "average_view_duration_seconds": a.average_view_duration_seconds if a else None,
+                "average_view_percentage": a.average_view_percentage if a else None,
             }
-            for v, s in rows
+            for v, s, a in rows
         ],
     }
 

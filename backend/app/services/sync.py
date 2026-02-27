@@ -2,11 +2,12 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.channels import Channel
-from app.models.stats import VideoStats
+from app.models.stats import VideoAnalytics, VideoStats
 from app.models.users import User
 from app.models.videos import Video
 from app.services import youtube as yt
@@ -16,6 +17,89 @@ from app.utils.youtube_parser import best_thumbnail, parse_duration
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _safe_int(val) -> int | None:
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float(val) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+async def _sync_analytics(
+    db: AsyncSession,
+    access_token: str,
+    refresh_token: str | None,
+    channel: Channel,
+) -> None:
+    """fetch analytics for all videos and upsert into video_analytics.
+    called after the main video sync so all videos already exist in the db."""
+    analytics_data = await yt.get_channel_analytics(access_token, refresh_token)
+    if not analytics_data:
+        return
+
+    # build a lookup from youtube video id → our internal db video id
+    result = await db.execute(
+        select(Video.youtube_video_id, Video.id).where(Video.channel_id == channel.id)
+    )
+    yt_to_db = {row[0]: row[1] for row in result.all()}
+
+    today = datetime.now(UTC).date()
+
+    for yt_vid_id, data in analytics_data.items():
+        db_vid_id = yt_to_db.get(yt_vid_id)
+        if not db_vid_id:
+            continue  # video not in our db (deleted, private, etc) — skip
+
+        stmt = (
+            pg_insert(VideoAnalytics)
+            .values(
+                id=uuid.uuid4(),
+                video_id=db_vid_id,
+                date=today,
+                views=_safe_int(data.get("views")),
+                estimated_minutes_watched=_safe_float(data.get("estimatedMinutesWatched")),
+                average_view_duration_seconds=_safe_float(data.get("averageViewDuration")),
+                average_view_percentage=_safe_float(data.get("averageViewPercentage")),
+                click_through_rate=_safe_float(data.get("impressionsClickThroughRate")),
+                impressions=_safe_int(data.get("impressions")),
+                likes=_safe_int(data.get("likes")),
+                comments=_safe_int(data.get("comments")),
+                shares=_safe_int(data.get("shares")),
+                subscribers_gained=_safe_int(data.get("subscribersGained")),
+                subscribers_lost=_safe_int(data.get("subscribersLost")),
+                fetched_at=_utcnow(),
+            )
+            .on_conflict_do_update(
+                constraint="uq_video_analytics_video_date",
+                set_={
+                    "views": _safe_int(data.get("views")),
+                    "estimated_minutes_watched": _safe_float(data.get("estimatedMinutesWatched")),
+                    "average_view_duration_seconds": _safe_float(data.get("averageViewDuration")),
+                    "average_view_percentage": _safe_float(data.get("averageViewPercentage")),
+                    "click_through_rate": _safe_float(data.get("impressionsClickThroughRate")),
+                    "impressions": _safe_int(data.get("impressions")),
+                    "likes": _safe_int(data.get("likes")),
+                    "comments": _safe_int(data.get("comments")),
+                    "shares": _safe_int(data.get("shares")),
+                    "subscribers_gained": _safe_int(data.get("subscribersGained")),
+                    "subscribers_lost": _safe_int(data.get("subscribersLost")),
+                    "fetched_at": _utcnow(),
+                },
+            )
+        )
+        await db.execute(stmt)
 
 
 async def sync_channel(db: AsyncSession, user: User) -> Channel:
@@ -137,6 +221,13 @@ async def sync_channel(db: AsyncSession, user: User) -> Channel:
                 fetched_at=_utcnow(),
             )
             db.add(snapshot)
+
+    # ── step 4: fetch analytics api data ─────────────────────────────────────
+    # wrapped in try/except — if analytics fail, the video sync still succeeds
+    try:
+        await _sync_analytics(db, access_token, refresh_token, channel)
+    except Exception as exc:
+        print(f"analytics sync skipped: {exc}")
 
     await db.commit()
     await db.refresh(channel)
