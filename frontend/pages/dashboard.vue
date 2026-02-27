@@ -25,6 +25,7 @@ interface Video {
   view_count: number
   like_count: number
   comment_count: number
+  views_per_day: number
   click_through_rate: number | null
   impressions: number | null
   average_view_duration_seconds: number | null
@@ -237,10 +238,13 @@ const formatCtr = (ctr: number | null) => {
                 <td colspan="5" class="px-4 pb-2.5 pt-0">
                   <div class="flex items-center gap-6 text-xs text-gray-500 pl-[76px]">
                     <span>
-                      CTR: <span class="text-gray-400">{{ formatCtr(v.click_through_rate) }}</span>
+                      Views/day: <span class="text-gray-400">{{ formatNum(v.views_per_day) }}</span>
                     </span>
                     <span>
                       Avg watch: <span class="text-gray-400">{{ formatDuration(v.average_view_duration_seconds) }}</span>
+                    </span>
+                    <span>
+                      CTR: <span class="text-gray-400">{{ formatCtr(v.click_through_rate) }}</span>
                     </span>
                     <span>
                       Impressions: <span class="text-gray-400">{{ formatNum(v.impressions) }}</span>

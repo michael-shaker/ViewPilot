@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -108,6 +109,9 @@ async def list_videos(
                 "like_count": s.like_count,
                 "comment_count": s.comment_count,
                 "stats_fetched_at": s.fetched_at,
+                "views_per_day": round(
+                    s.view_count / max((date.today() - v.published_at.date()).days, 1), 1
+                ),
                 "click_through_rate": a.click_through_rate if a else None,
                 "impressions": a.impressions if a else None,
                 "average_view_duration_seconds": a.average_view_duration_seconds if a else None,
