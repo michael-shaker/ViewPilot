@@ -137,10 +137,9 @@ const fmtNum = (n: number | null) => {
   return n.toLocaleString()
 }
 
-// only abbreviate at millions — everything else gets full number with commas
+// always show the full number with commas — no abbreviations
 const fmtNumFull = (n: number | null) => {
   if (n == null) return '—'
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
   return Math.round(n).toLocaleString()
 }
 
@@ -733,11 +732,11 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
               </NuxtLink>
               <div class="flex text-xs text-right shrink-0">
                 <div class="w-20"><div class="text-emerald-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views/day</div></div>
-                <div class="w-20"><div class="text-emerald-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
                 <div class="w-20"><div class="text-emerald-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
+                <div class="w-24"><div class="text-emerald-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
             </div>
@@ -747,8 +746,8 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
               <span>Views/day: <span class="text-emerald-400 font-medium">{{ fmtNum(Math.round(groupTotals(data.top_videos).vpd)) }}</span></span>
-              <span>Total Views: <span class="text-emerald-400 font-medium">{{ fmtNumFull(groupTotals(data.top_videos).views) }}</span></span>
               <span v-if="groupTotals(data.top_videos).revenue != null">Total Revenue: <span class="text-emerald-400 font-medium">{{ fmtMoney(groupTotals(data.top_videos).revenue) }}</span></span>
+              <span>Total Views: <span class="text-emerald-400 font-medium">{{ fmtNumFull(groupTotals(data.top_videos).views) }}</span></span>
             </div>
           </div>
         </div>
@@ -771,11 +770,11 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
               </NuxtLink>
               <div class="flex text-xs text-right shrink-0">
                 <div class="w-20"><div class="text-red-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views/day</div></div>
-                <div class="w-20"><div class="text-red-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
                 <div class="w-20"><div class="text-red-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
+                <div class="w-24"><div class="text-red-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
             </div>
@@ -785,8 +784,8 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
               <span>Views/day: <span class="text-red-400 font-medium">{{ fmtNum(Math.round(groupTotals(data.bottom_videos).vpd)) }}</span></span>
-              <span>Total Views: <span class="text-red-400 font-medium">{{ fmtNumFull(groupTotals(data.bottom_videos).views) }}</span></span>
               <span v-if="groupTotals(data.bottom_videos).revenue != null">Total Revenue: <span class="text-red-400 font-medium">{{ fmtMoney(groupTotals(data.bottom_videos).revenue) }}</span></span>
+              <span>Total Views: <span class="text-red-400 font-medium">{{ fmtNumFull(groupTotals(data.bottom_videos).views) }}</span></span>
             </div>
           </div>
         </div>
