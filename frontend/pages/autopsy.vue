@@ -162,7 +162,7 @@ const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 const fmtMoney = (n: number | null) =>
-  n == null ? '—' : '$' + n.toFixed(2)
+  n == null ? '—' : '$' + (Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : n.toFixed(2))
 
 const deltaColor = (pct: number | null) => {
   if (pct == null) return 'text-gray-500'
@@ -745,7 +745,6 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
           <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
-              <span>Views/day: <span class="text-emerald-400 font-medium">{{ fmtNum(Math.round(groupTotals(data.top_videos).vpd)) }}</span></span>
               <span v-if="groupTotals(data.top_videos).revenue != null">Total Revenue: <span class="text-emerald-400 font-medium">{{ fmtMoney(groupTotals(data.top_videos).revenue) }}</span></span>
               <span>Total Views: <span class="text-emerald-400 font-medium">{{ fmtNumFull(groupTotals(data.top_videos).views) }}</span></span>
             </div>
@@ -783,7 +782,6 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
           <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
-              <span>Views/day: <span class="text-red-400 font-medium">{{ fmtNum(Math.round(groupTotals(data.bottom_videos).vpd)) }}</span></span>
               <span v-if="groupTotals(data.bottom_videos).revenue != null">Total Revenue: <span class="text-red-400 font-medium">{{ fmtMoney(groupTotals(data.bottom_videos).revenue) }}</span></span>
               <span>Total Views: <span class="text-red-400 font-medium">{{ fmtNumFull(groupTotals(data.bottom_videos).views) }}</span></span>
             </div>
