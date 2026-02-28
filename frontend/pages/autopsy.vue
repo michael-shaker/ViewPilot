@@ -426,7 +426,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
           <span class="text-white font-medium">bottom {{ data.meta.tier_pct }}%</span>
           ({{ data.meta.tier_count }} videos) out of your last
           <span class="text-white font-medium">{{ data.meta.window_size }} videos</span>.
-          Ranked by views per day.
+          Ranked by total views.
         </div>
 
         <!-- ── hero summary ──────────────────────────────────────────────── -->

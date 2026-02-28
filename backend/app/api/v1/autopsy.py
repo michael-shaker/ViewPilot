@@ -234,8 +234,8 @@ async def get_autopsy(
             detail="not enough non-short videos to compare — need at least 4",
         )
 
-    # rank by views/day — fairest metric in a recency window where video ages differ
-    enriched.sort(key=lambda x: x["views_per_day"], reverse=True)
+    # rank by total view count — this is what actually defines a video's impact
+    enriched.sort(key=lambda x: x["view_count"], reverse=True)
 
     tier_count = max(2, round(len(enriched) * tier_pct / 100))
     top = enriched[:tier_count]
