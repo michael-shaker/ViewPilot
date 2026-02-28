@@ -4,7 +4,7 @@
 
 body {
   background-image: url('/viewpilot_background.png');
-  background-size: 100% 100%; /* stretch to fill so edge icons are always visible */
+  background-size: cover;
   background-attachment: fixed;
   background-color: #030712;
 }
