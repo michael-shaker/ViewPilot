@@ -29,7 +29,7 @@ CATEGORY_NAMES = {
     "27": "Education", "28": "Science & Technology", "29": "Nonprofits & Activism",
 }
 
-DURATION_BUCKETS = ["< 3 min", "3–7 min", "8–9 min", "10–11 min", "12–15 min", "15+ min"]
+DURATION_BUCKETS = ["< 3 min", "3–7 min", "8–9 min", "10–11 min", "12–14 min", "15+ min"]
 
 # common words that don't tell us anything useful about title patterns
 STOP_WORDS = {
@@ -41,6 +41,24 @@ STOP_WORDS = {
     "just", "more", "about", "than", "into", "they", "them", "will",
     "can", "her", "his", "him", "she", "he", "us", "vs", "was", "were",
 }
+
+
+def _build_timeline(enriched: list, top: list, bottom: list) -> list:
+    """tag every video in the window with its rank percentile (0.0 = best, 1.0 = worst)
+    so the frontend can render a smooth color spectrum instead of fixed tier colors."""
+    top_ids = {v["id"] for v in top}
+    bottom_ids = {v["id"] for v in bottom}
+    n = len(enriched)
+    return [
+        {
+            "id": v["id"],
+            "title": v["title"],
+            "published_at": v["published_at"].date().isoformat(),
+            "group": "top" if v["id"] in top_ids else "bottom" if v["id"] in bottom_ids else "mid",
+            "rank_pct": i / (n - 1) if n > 1 else 0.0,
+        }
+        for i, v in enumerate(enriched)  # enriched is already sorted best→worst
+    ]
 
 
 def _safe_avg(values: list) -> float | None:
@@ -69,7 +87,7 @@ def _duration_bucket(secs: int | None) -> str:
     if secs < 720:
         return "10–11 min"
     if secs < 900:
-        return "12–15 min"
+        return "12–14 min"
     return "15+ min"
 
 
@@ -191,9 +209,10 @@ async def get_autopsy(
     enriched = []
     for v, s, a in rows:
         days_live = max((today - v.published_at.date()).days, 1)
-        # use 30-day rolling average if available, fall back to lifetime average
+        # use 30-day rolling total if available, fall back to lifetime average for ranking
         recent = recent_views.get(v.youtube_video_id)
         views_per_day = (recent / 30) if recent is not None else (s.view_count / days_live)
+        views_last_30d = recent  # raw 30-day total, None if api call failed
         engagement_rate = (s.like_count / s.view_count * 100) if s.view_count else 0.0
         comment_rate = (s.comment_count / s.view_count * 100) if s.view_count else 0.0
 
@@ -211,6 +230,7 @@ async def get_autopsy(
             "like_count": s.like_count,
             "comment_count": s.comment_count,
             "views_per_day": views_per_day,
+            "views_last_30d": views_last_30d,
             "engagement_rate": engagement_rate,
             "comment_rate": comment_rate,
             # analytics may be None if the analytics api hasn't synced yet
@@ -240,6 +260,24 @@ async def get_autopsy(
     tier_count = max(2, round(len(enriched) * tier_pct / 100))
     top = enriched[:tier_count]
     bottom = enriched[-tier_count:]
+
+    # middle group = everyone who isn't top or bottom
+    middle_all = enriched[tier_count:-tier_count] if len(enriched) > 2 * tier_count else []
+    # take a centered sample the same size as tier_count so the card stays consistent
+    if middle_all:
+        center = len(middle_all) // 2
+        n_sample = min(max(1, tier_count // 2), len(middle_all))
+        half = n_sample // 2
+        m_start = max(0, center - half)
+        m_end = m_start + n_sample
+        if m_end > len(middle_all):
+            m_end = len(middle_all)
+            m_start = max(0, m_end - n_sample)
+        avg_sample = middle_all[m_start:m_end]
+        avg_rank_start = tier_count + m_start + 1  # 1-based rank of the first shown avg video
+    else:
+        avg_sample = []
+        avg_rank_start = tier_count + 1
 
     # ── key metrics comparison ────────────────────────────────────────────────
 
@@ -321,21 +359,25 @@ async def get_autopsy(
         return {b: counts.get(b, 0) for b in DURATION_BUCKETS + ["Unknown"]}
 
     bucket_perf: dict[str, list] = {}
+    bucket_views: dict[str, int] = {}
     for v in enriched:
         b = _duration_bucket(v["duration_seconds"])
         bucket_perf.setdefault(b, []).append(v["views_per_day"])
+        bucket_views[b] = bucket_views.get(b, 0) + v["view_count"]
 
     bucket_avg_vpd = {
         b: round(sum(vpds) / len(vpds), 1)
         for b, vpds in bucket_perf.items()
         if b != "Unknown" and vpds
     }
+    bucket_total_views = {b: views for b, views in bucket_views.items() if b != "Unknown"}
     best_bucket = max(bucket_avg_vpd, key=bucket_avg_vpd.get) if bucket_avg_vpd else None
 
     duration_analysis = {
         "top": bucket_breakdown(top),
         "bottom": bucket_breakdown(bottom),
         "avg_vpd_by_bucket": bucket_avg_vpd,
+        "total_views_by_bucket": bucket_total_views,
         "best_bucket": best_bucket,
         "shorts_pct_top": round(sum(1 for v in top if v["is_short"]) / len(top) * 100),
         "shorts_pct_bottom": round(sum(1 for v in bottom if v["is_short"]) / len(bottom) * 100),
@@ -395,6 +437,29 @@ async def get_autopsy(
         "bottom": cat_breakdown(bottom),
     }
 
+    # ── quarterly breakdown ───────────────────────────────────────────────────
+
+    quarter_map: dict[tuple, list] = {}
+    for v in enriched:
+        key = (v["published_at"].year, (v["published_at"].month - 1) // 3 + 1)
+        quarter_map.setdefault(key, []).append(v)
+
+    quarterly_breakdown = []
+    for (year, q_num) in sorted(quarter_map.keys()):
+        vids = quarter_map[(year, q_num)]
+        avg_vpd = _safe_avg([v["views_per_day"] for v in vids])
+        total_views = sum(v["view_count"] for v in vids)
+        avg_rev = _safe_avg([v["estimated_revenue"] for v in vids if v["estimated_revenue"] is not None])
+        quarterly_breakdown.append({
+            "label": f"Q{q_num} {year}",
+            "year": year,
+            "quarter": q_num,
+            "count": len(vids),
+            "avg_views_per_day": round(avg_vpd, 1) if avg_vpd is not None else 0,
+            "total_views": total_views,
+            "avg_revenue": round(avg_rev, 2) if avg_rev is not None else None,
+        })
+
     # ── video summaries ───────────────────────────────────────────────────────
 
     def video_summary(v: dict) -> dict:
@@ -406,6 +471,7 @@ async def get_autopsy(
             "published_at": v["published_at"].isoformat(),
             "view_count": v["view_count"],
             "views_per_day": round(v["views_per_day"], 1),
+            "views_last_30d": v["views_last_30d"],
             "ctr": round(v["ctr"] * 100, 2) if v["ctr"] is not None else None,
             "avg_view_duration": v["avg_view_duration"],
             "engagement_rate": round(v["engagement_rate"], 2),
@@ -415,12 +481,19 @@ async def get_autopsy(
             "estimated_revenue": round(v["estimated_revenue"], 2) if v["estimated_revenue"] is not None else None,
         }
 
+    published_dates = [v["published_at"] for v in enriched]
+    window_oldest = min(published_dates).date().isoformat() if published_dates else None
+    window_newest = max(published_dates).date().isoformat() if published_dates else None
+
     return {
         "meta": {
             "window_size": len(enriched),
             "tier_pct": tier_pct,
             "tier_count": tier_count,
             "shorts_excluded": shorts_excluded,
+            "window_oldest": window_oldest,
+            "window_newest": window_newest,
+            "avg_rank_start": avg_rank_start,
         },
         "key_metrics": key_metrics,
         "title_analysis": title_analysis,
@@ -428,6 +501,9 @@ async def get_autopsy(
         "duration_analysis": duration_analysis,
         "tag_analysis": tag_analysis,
         "category_analysis": category_analysis,
+        "quarterly_breakdown": quarterly_breakdown,
+        "timeline_videos": _build_timeline(enriched, top, bottom),
         "top_videos": [video_summary(v) for v in top],
+        "avg_videos": [video_summary(v) for v in avg_sample],
         "bottom_videos": [video_summary(v) for v in bottom],
     }

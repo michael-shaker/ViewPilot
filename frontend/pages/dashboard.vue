@@ -157,142 +157,201 @@ const formatRpm = (n: number | null) => {
 <template>
   <div class="min-h-screen text-white">
 
-    <!-- top nav -->
-    <header class="border-b border-white/10 px-6 py-4 flex items-center justify-between">
+    <!-- nav — matches autopsy styling -->
+    <header class="border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-10">
       <span class="text-lg font-bold tracking-tight">ViewPilot</span>
       <div class="flex items-center gap-4">
-        <div class="flex items-center gap-2">
-          <img v-if="user?.picture_url" :src="user.picture_url" class="h-7 w-7 rounded-full" />
-          <span class="text-sm text-gray-400">{{ user?.name }}</span>
+        <div class="flex items-center gap-2.5">
+          <img v-if="user?.picture_url" :src="user.picture_url" class="h-8 w-8 rounded-full ring-1 ring-white/20" />
+          <span class="text-sm text-gray-300">{{ user?.name }}</span>
         </div>
-        <button @click="logout" class="text-sm text-gray-400 hover:text-white transition">Logout</button>
+        <div class="w-px h-4 bg-white/10"></div>
+        <button @click="logout" class="text-sm text-gray-500 hover:text-white transition">Logout</button>
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-6 py-8">
+    <main class="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
-      <!-- channel stats bar -->
-      <div v-if="channel" class="bg-white/15 ring-1 ring-white/25 rounded-xl p-6 mb-8 flex items-center gap-6">
-        <img v-if="channel.thumbnail_url" :src="channel.thumbnail_url" class="h-14 w-14 rounded-full" />
-        <div class="flex-1">
-          <h2 class="text-xl font-semibold">{{ channel.title }}</h2>
-          <p v-if="channel.last_synced_at" class="text-xs text-gray-500 mt-0.5">
-            Last synced {{ formatDate(channel.last_synced_at) }}
-          </p>
-        </div>
-        <div class="flex gap-8 text-center">
-          <div>
-            <p class="text-2xl font-bold">{{ formatNum(channel.subscriber_count) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Subscribers</p>
+      <!-- channel hero card -->
+      <div v-if="channel" class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
+
+        <!-- top section: avatar + name + action buttons -->
+        <div class="px-8 py-7 flex items-center gap-6">
+          <img
+            v-if="channel.thumbnail_url"
+            :src="channel.thumbnail_url"
+            class="h-16 w-16 rounded-full ring-2 ring-white/20 shrink-0"
+          />
+          <div v-else class="h-16 w-16 rounded-full bg-white/10 shrink-0 flex items-center justify-center text-gray-500 text-xl">▶</div>
+
+          <div class="flex-1 min-w-0">
+            <h1 class="text-2xl font-bold tracking-tight truncate">{{ channel.title }}</h1>
+            <p class="text-xs text-gray-500 mt-1 uppercase tracking-wider">YouTube Channel</p>
           </div>
-          <div>
-            <p class="text-2xl font-bold">{{ formatNum(channel.view_count) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Total views</p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold">{{ formatNum(channel.video_count) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Videos</p>
-          </div>
-        </div>
-        <div class="ml-4 flex flex-col items-end gap-2">
-          <div class="flex gap-2">
+
+          <!-- action buttons — larger per spec -->
+          <div class="flex items-center gap-3 shrink-0">
             <NuxtLink
               to="/autopsy"
-              class="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium hover:bg-purple-600 transition"
-            >
-              Autopsy
-            </NuxtLink>
+              class="bg-purple-600 hover:bg-purple-500 active:scale-95 px-6 py-3 rounded-xl text-sm font-semibold transition"
+            >Autopsy</NuxtLink>
             <button
               @click="sync"
               :disabled="syncing"
-              class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition"
-            >
-              {{ syncing ? 'Syncing...' : 'Sync' }}
-            </button>
+              class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 active:scale-95 px-6 py-3 rounded-xl text-sm font-semibold transition"
+            >{{ syncing ? 'Syncing…' : 'Sync' }}</button>
+          </div>
+        </div>
+
+        <!-- stats + last synced footer strip -->
+        <div class="border-t border-white/10 bg-black/20 px-8 py-4 flex items-center gap-8 flex-wrap">
+          <div class="flex items-baseline gap-2">
+            <span class="text-xl font-bold">{{ formatNum(channel.subscriber_count) }}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-wider">Subscribers</span>
+          </div>
+          <div class="w-px h-4 bg-white/10 shrink-0"></div>
+          <div class="flex items-baseline gap-2">
+            <span class="text-xl font-bold">{{ formatNum(channel.view_count) }}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-wider">Total Views</span>
+          </div>
+          <div class="w-px h-4 bg-white/10 shrink-0"></div>
+          <div class="flex items-baseline gap-2">
+            <span class="text-xl font-bold">{{ formatNum(channel.video_count) }}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-wider">Videos</span>
+          </div>
+          <div class="flex-1"></div>
+          <div v-if="channel.last_synced_at" class="text-sm text-gray-400">
+            Last synced <span class="text-gray-200 font-medium ml-1">{{ formatDate(channel.last_synced_at) }}</span>
           </div>
           <span v-if="syncError" class="text-xs text-red-400">{{ syncError }}</span>
         </div>
       </div>
 
       <!-- error state -->
-      <div v-else-if="loadError" class="text-center text-red-400 py-20">{{ loadError }}</div>
+      <div v-else-if="loadError" class="bg-white/5 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-red-400 text-sm">
+        {{ loadError }}
+      </div>
 
       <!-- loading state -->
-      <div v-else class="text-center text-gray-500 py-20">Loading channel...</div>
+      <div v-else class="bg-white/5 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-gray-500 text-sm">
+        Loading channel…
+      </div>
 
       <!-- video table -->
-      <div v-if="videos.length" class="bg-white/15 ring-1 ring-white/25 rounded-xl overflow-hidden">
+      <div v-if="videos.length" class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
+
+        <!-- table card header -->
+        <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+          <h2 class="text-xs uppercase tracking-widest text-gray-400">Videos</h2>
+          <span class="text-xs text-gray-500">{{ totalVideos }} total</span>
+        </div>
+
         <table class="w-full text-sm">
-          <thead class="border-b border-gray-700/50 text-gray-400 text-xs uppercase tracking-wider">
+          <thead class="border-b border-white/5 text-xs uppercase tracking-wider">
             <tr>
-              <th class="text-left px-4 py-3">Video</th>
-              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('published_at')">
-                Date {{ sortIcon('published_at') }}
-              </th>
-              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('views')">
-                Views {{ sortIcon('views') }}
-              </th>
-              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('revenue')">
-                Revenue {{ sortIcon('revenue') }}
-              </th>
-              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('rpm')">
-                RPM {{ sortIcon('rpm') }}
-              </th>
-              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('likes')">
-                Likes {{ sortIcon('likes') }}
-              </th>
-              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('comments')">
-                Comments {{ sortIcon('comments') }}
-              </th>
+              <th class="text-left px-5 py-3 text-gray-500">Video</th>
+              <th
+                class="px-4 py-3 cursor-pointer select-none transition"
+                :class="sortBy === 'published_at' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
+                @click="setSort('published_at')"
+              >Date {{ sortIcon('published_at') }}</th>
+              <th
+                class="px-4 py-3 cursor-pointer select-none transition"
+                :class="sortBy === 'views' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
+                @click="setSort('views')"
+              >Views {{ sortIcon('views') }}</th>
+              <th
+                class="px-4 py-3 cursor-pointer select-none transition"
+                :class="sortBy === 'revenue' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
+                @click="setSort('revenue')"
+              >Revenue {{ sortIcon('revenue') }}</th>
+              <th
+                class="px-4 py-3 cursor-pointer select-none transition"
+                :class="sortBy === 'rpm' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
+                @click="setSort('rpm')"
+              >RPM {{ sortIcon('rpm') }}</th>
+              <th
+                class="px-4 py-3 cursor-pointer select-none transition"
+                :class="sortBy === 'likes' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
+                @click="setSort('likes')"
+              >Likes {{ sortIcon('likes') }}</th>
+              <th
+                class="px-4 py-3 cursor-pointer select-none transition"
+                :class="sortBy === 'comments' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
+                @click="setSort('comments')"
+              >Comments {{ sortIcon('comments') }}</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody class="divide-y divide-white/5">
             <template v-for="v in videos" :key="v.id">
+
               <!-- main row -->
-              <tr class="border-t border-gray-700/50 hover:bg-white/5 transition">
-                <td class="px-4 pt-3 pb-1 flex items-center gap-3 max-w-sm">
-                  <img v-if="v.thumbnail_url" :src="v.thumbnail_url" class="h-10 w-16 rounded object-cover shrink-0" />
-                  <NuxtLink :to="`/video/${v.id}`" class="truncate text-gray-100 hover:text-white hover:underline transition">{{ v.title }}</NuxtLink>
+              <tr class="hover:bg-white/5 transition">
+                <td class="px-5 pt-3 pb-2">
+                  <div class="flex items-center gap-3 max-w-xs">
+                    <img
+                      v-if="v.thumbnail_url"
+                      :src="v.thumbnail_url"
+                      class="h-11 w-[72px] rounded-lg object-cover shrink-0 ring-1 ring-white/10"
+                    />
+                    <NuxtLink
+                      :to="`/video/${v.id}`"
+                      class="text-sm text-gray-200 hover:text-white transition line-clamp-2 leading-snug"
+                    >{{ v.title }}</NuxtLink>
+                  </div>
                 </td>
-                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatDate(v.published_at) }}</td>
-                <td class="px-4 pt-3 pb-1 text-center">{{ formatNum(v.view_count) }}</td>
-                <td class="px-4 pt-3 pb-1 text-center text-gray-400">
-                  <template v-if="v.estimated_revenue != null"><span class="text-green-600">$</span>{{ v.estimated_revenue.toFixed(2) }}</template>
-                  <template v-else>—</template>
+                <td class="px-4 pt-3 pb-2 text-center text-gray-400 whitespace-nowrap text-xs">{{ formatDate(v.published_at) }}</td>
+                <td class="px-4 pt-3 pb-2 text-center font-medium">{{ formatNum(v.view_count) }}</td>
+                <td class="px-4 pt-3 pb-2 text-center">
+                  <span v-if="v.estimated_revenue != null" class="text-emerald-400 font-medium">{{ formatMoney(v.estimated_revenue) }}</span>
+                  <span v-else class="text-gray-600">—</span>
                 </td>
-                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ v.rpm != null ? v.rpm.toFixed(2) : '—' }}</td>
-                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.like_count) }}</td>
-                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
+                <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatRpm(v.rpm) }}</td>
+                <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatNum(v.like_count) }}</td>
+                <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
               </tr>
-              <!-- analytics sub-row -->
-              <tr class="border-b border-white/5 bg-black/10">
-                <td colspan="7" class="px-4 pb-2.5 pt-0">
-                  <div class="flex items-center gap-6 text-xs text-gray-500 pl-[76px]">
-                    <span>
-                      Views per day: <span class="text-gray-400">{{ formatNum(v.views_per_day) }}</span>
+
+              <!-- analytics sub-row — stat chips -->
+              <tr>
+                <td colspan="7" class="px-5 pb-3 pt-0">
+                  <div class="flex items-center gap-2 pl-[84px] flex-wrap">
+                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
+                      Views/day <span class="text-gray-300 font-medium ml-1">{{ formatNum(v.views_per_day) }}</span>
                     </span>
-                    <span>
-                      Avg watch: <span class="text-gray-400">{{ formatDuration(v.average_view_duration_seconds) }}</span>
+                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
+                      Avg watch <span class="text-gray-300 font-medium ml-1">{{ formatDuration(v.average_view_duration_seconds) }}</span>
                     </span>
-                    <span>
-                      CTR: <span class="text-gray-400">{{ formatCtr(v.click_through_rate) }}</span>
+                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
+                      CTR <span class="text-gray-300 font-medium ml-1">{{ formatCtr(v.click_through_rate) }}</span>
                     </span>
-                    <span>
-                      Impressions: <span class="text-gray-400">{{ formatNum(v.impressions) }}</span>
+                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
+                      Impressions <span class="text-gray-300 font-medium ml-1">{{ formatNum(v.impressions) }}</span>
                     </span>
                   </div>
                 </td>
               </tr>
+
             </template>
           </tbody>
         </table>
 
         <!-- pagination -->
-        <div class="border-t border-gray-700/50 px-4 py-3 flex items-center justify-between text-sm text-gray-400">
-          <span>{{ totalVideos }} videos — page {{ page }} of {{ totalPages }}</span>
-          <div class="flex gap-2">
-            <button @click="prevPage" :disabled="page === 1" class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition">←</button>
-            <button @click="nextPage" :disabled="page === totalPages" class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 transition">→</button>
+        <div class="border-t border-white/10 bg-black/20 px-6 py-3 flex items-center justify-between">
+          <span class="text-xs text-gray-500">
+            Showing {{ (page - 1) * perPage + 1 }}–{{ Math.min(page * perPage, totalVideos) }} of {{ totalVideos }} videos
+          </span>
+          <div class="flex items-center gap-1.5">
+            <button
+              @click="prevPage"
+              :disabled="page === 1"
+              class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition text-xs text-gray-400"
+            >← Prev</button>
+            <span class="px-3 py-1.5 text-xs text-gray-500">{{ page }} / {{ totalPages }}</span>
+            <button
+              @click="nextPage"
+              :disabled="page === totalPages"
+              class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition text-xs text-gray-400"
+            >Next →</button>
           </div>
         </div>
       </div>
