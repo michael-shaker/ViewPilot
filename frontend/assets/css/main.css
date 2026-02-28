@@ -3,8 +3,18 @@
 @tailwind utilities;
 
 body {
+  background-color: #030712; /* fallback while image loads */
+}
+
+/* fixed background layer that sits behind everything on every page —
+   using ::before instead of body background-image because fixed backgrounds
+   can disappear on client-side navigation in nuxt */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
   background-image: url('/viewpilot_background.png');
   background-size: cover;
-  background-attachment: fixed;
-  background-color: #030712;
+  background-position: center;
+  z-index: -1;
 }

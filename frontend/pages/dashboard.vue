@@ -160,7 +160,7 @@ const formatCtr = (ctr: number | null) => {
     <main class="max-w-6xl mx-auto px-6 py-8">
 
       <!-- channel stats bar -->
-      <div v-if="channel" class="bg-white/5 ring-1 ring-white/10 rounded-xl p-6 mb-8 flex items-center gap-6">
+      <div v-if="channel" class="bg-white/10 ring-1 ring-white/20 rounded-xl p-6 mb-8 flex items-center gap-6">
         <img v-if="channel.thumbnail_url" :src="channel.thumbnail_url" class="h-14 w-14 rounded-full" />
         <div class="flex-1">
           <h2 class="text-xl font-semibold">{{ channel.title }}</h2>
@@ -201,7 +201,7 @@ const formatCtr = (ctr: number | null) => {
       <div v-else class="text-center text-gray-500 py-20">Loading channel...</div>
 
       <!-- video table -->
-      <div v-if="videos.length" class="bg-white/5 ring-1 ring-white/10 rounded-xl overflow-hidden">
+      <div v-if="videos.length" class="bg-white/10 ring-1 ring-white/20 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
           <thead class="border-b border-gray-700/50 text-gray-400 text-xs uppercase tracking-wider">
             <tr>
