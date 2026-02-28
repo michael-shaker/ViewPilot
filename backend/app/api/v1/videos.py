@@ -128,7 +128,7 @@ async def get_video(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """return a single video with its full stats history."""
+    """return a single video with its full stats + analytics."""
     video = await db.get(Video, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="video not found")
@@ -138,13 +138,25 @@ async def get_video(
     if not channel or channel.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="video not found")
 
-    # fetch all stats snapshots for this video
+    # all stats snapshots, newest first
     stats_result = await db.execute(
         select(VideoStats)
         .where(VideoStats.video_id == video_id)
-        .order_by(VideoStats.fetched_at)
+        .order_by(VideoStats.fetched_at.desc())
     )
     stats_history = stats_result.scalars().all()
+
+    # latest analytics row
+    analytics_result = await db.execute(
+        select(VideoAnalytics)
+        .where(VideoAnalytics.video_id == video_id)
+        .order_by(VideoAnalytics.date.desc())
+        .limit(1)
+    )
+    analytics = analytics_result.scalar_one_or_none()
+
+    latest = stats_history[0] if stats_history else None
+    days_live = max((date.today() - video.published_at.date()).days, 1)
 
     return {
         "id": str(video.id),
@@ -155,9 +167,22 @@ async def get_video(
         "duration_seconds": video.duration_seconds,
         "is_short": video.is_short,
         "thumbnail_url": video.thumbnail_url,
-        "tags": video.tags,
+        "tags": video.tags or [],
         "category_id": video.category_id,
         "default_language": video.default_language,
+        # latest counts pulled out for easy access
+        "view_count": latest.view_count if latest else 0,
+        "like_count": latest.like_count if latest else 0,
+        "comment_count": latest.comment_count if latest else 0,
+        "views_per_day": round(latest.view_count / days_live, 1) if latest else None,
+        "engagement_rate": round(latest.like_count / latest.view_count * 100, 2) if latest and latest.view_count else None,
+        # analytics api data
+        "click_through_rate": analytics.click_through_rate if analytics else None,
+        "impressions": analytics.impressions if analytics else None,
+        "average_view_duration_seconds": analytics.average_view_duration_seconds if analytics else None,
+        "average_view_percentage": analytics.average_view_percentage if analytics else None,
+        "estimated_minutes_watched": analytics.estimated_minutes_watched if analytics else None,
+        # full history for the table
         "stats_history": [
             {
                 "view_count": s.view_count,

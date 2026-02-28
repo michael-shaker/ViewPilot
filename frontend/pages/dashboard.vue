@@ -226,7 +226,7 @@ const formatCtr = (ctr: number | null) => {
               <tr class="border-t border-gray-700/50 hover:bg-white/5 transition">
                 <td class="px-4 pt-3 pb-1 flex items-center gap-3 max-w-sm">
                   <img v-if="v.thumbnail_url" :src="v.thumbnail_url" class="h-10 w-16 rounded object-cover shrink-0" />
-                  <span class="truncate text-gray-100">{{ v.title }}</span>
+                  <NuxtLink :to="`/video/${v.id}`" class="truncate text-gray-100 hover:text-white hover:underline transition">{{ v.title }}</NuxtLink>
                 </td>
                 <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatDate(v.published_at) }}</td>
                 <td class="px-4 pt-3 pb-1 text-center">{{ formatNum(v.view_count) }}</td>
