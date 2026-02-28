@@ -385,6 +385,31 @@ docker-compose.yml → Local dev: api + db + redis
 
 **Next:** Dashboard remaining items (sparklines, filters) → Phase 3 ML pipeline (embeddings + clustering)
 
+### 2026-02-28 (Part 2) — Performance Over Time Chart Polish + Title DNA Word Scaling
+
+**Completed:**
+- `frontend/pages/autopsy.vue` — extensive visual improvements to the Performance Over Time chart and Title DNA section:
+
+**Performance Over Time chart:**
+- Color gradient upgraded from 2-stop (green→red) to 5-stop smooth ramp: green → teal → blue → purple → red. No more flat zones or hard color jumps.
+- Bar layout: removed `justify-between`, switched to `flex-1 min-w-0` columns with `gap-1` so bars fill the full width and shrink proportionally — no overflow.
+- Block shape: fixed `h-[15px]` height (no more `aspect-video` which caused overflow), `rounded` corners for a brick-like look.
+- Block depth: `inset 0 1px 0 rgba(255,255,255,0.22)` top highlight + `inset 0 0 0 2px rgba(0,0,0,0.55)` dark border on every block.
+- X-axis labels: two-row layout — period label (Q1/Q2/month) in a fixed-height row on top, then a separate year-groups row below. Year groups use `flex: N` so each year label is truly centered over its full span of quarters, not pinned to a single column. Bracket lines (`border-t border-l border-r`) visually group quarters under their year.
+- Legend: widened from `w-24` to `w-44`, updated gradient to match the 5-stop chart colors including a pink stop.
+
+**Title DNA word clouds:**
+- Words in top/bottom title chips now scale in font size based on frequency. Formula: `0.75rem + (count / maxCount) * 0.75rem` → range 0.75rem to 1.5rem. The most-used word is always the largest, all others scale proportionally down.
+- Count badge uses `0.65em` (relative to chip font size) so it scales naturally with each chip.
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+**Next:** Dashboard remaining items (sparklines, filters, Shorts toggle) → Phase 3 ML pipeline
+
 ### Next Session — Nuxt 3 Frontend (archived plan)
 
 **Goal:** Build the frontend so you can actually log in and see channel data in a browser.
