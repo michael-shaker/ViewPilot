@@ -29,7 +29,7 @@ CATEGORY_NAMES = {
     "27": "Education", "28": "Science & Technology", "29": "Nonprofits & Activism",
 }
 
-DURATION_BUCKETS = ["< 3 min", "3–6 min", "6–9 min", "9–12 min", "12–15 min", "15+ min"]
+DURATION_BUCKETS = ["< 3 min", "3–7 min", "8–9 min", "10–11 min", "12–15 min", "15+ min"]
 
 # common words that don't tell us anything useful about title patterns
 STOP_WORDS = {
@@ -60,15 +60,15 @@ def _delta_pct(top: float | None, bottom: float | None) -> float | None:
 def _duration_bucket(secs: int | None) -> str:
     if secs is None or secs == 0:
         return "Unknown"
-    if secs < 181:
+    if secs < 180:
         return "< 3 min"
-    if secs < 361:
-        return "3–6 min"
-    if secs < 541:
-        return "6–9 min"
-    if secs < 721:
-        return "9–12 min"
-    if secs < 901:
+    if secs < 480:
+        return "3–7 min"
+    if secs < 600:
+        return "8–9 min"
+    if secs < 720:
+        return "10–11 min"
+    if secs < 900:
         return "12–15 min"
     return "15+ min"
 

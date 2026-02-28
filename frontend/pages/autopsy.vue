@@ -290,12 +290,26 @@ const titleFeatures = computed(() => {
   const t = data.value.title_analysis.top
   const b = data.value.title_analysis.bottom
   const n = data.value.meta.tier_count
-  return [
-    { label: 'Has a number',        topPct: t.has_number_pct,      bottomPct: b.has_number_pct,      topCount: pctToCount(t.has_number_pct, n),      bottomCount: pctToCount(b.has_number_pct, n) },
-    { label: 'Has "!" exclamation', topPct: t.has_exclamation_pct, bottomPct: b.has_exclamation_pct, topCount: pctToCount(t.has_exclamation_pct, n), bottomCount: pctToCount(b.has_exclamation_pct, n) },
-    { label: 'Has "?" question',    topPct: t.has_question_pct,    bottomPct: b.has_question_pct,    topCount: pctToCount(t.has_question_pct, n),    bottomCount: pctToCount(b.has_question_pct, n) },
-    { label: 'Has ALL CAPS word',   topPct: t.has_all_caps_pct,    bottomPct: b.has_all_caps_pct,    topCount: pctToCount(t.has_all_caps_pct, n),    bottomCount: pctToCount(b.has_all_caps_pct, n) },
+
+  // all possible patterns in priority order — filter out any where both top and bottom are 0
+  // so we never waste a slot on a pattern that doesn't exist in this channel's videos
+  const ALL_PATTERNS = [
+    { label: 'Has a number',        topPct: t.has_number_pct,      bottomPct: b.has_number_pct      },
+    { label: 'Has ALL CAPS word',   topPct: t.has_all_caps_pct,    bottomPct: b.has_all_caps_pct    },
+    { label: 'Has "?" question',    topPct: t.has_question_pct,    bottomPct: b.has_question_pct    },
+    { label: 'Has ":" colon',       topPct: t.has_colon_pct,       bottomPct: b.has_colon_pct       },
+    { label: 'Has brackets/parens', topPct: t.has_brackets_pct,    bottomPct: b.has_brackets_pct    },
+    { label: 'Has "!" exclamation', topPct: t.has_exclamation_pct, bottomPct: b.has_exclamation_pct },
   ]
+
+  return ALL_PATTERNS
+    .filter(p => p.topPct > 0 || p.bottomPct > 0)
+    .slice(0, 4)
+    .map(p => ({
+      ...p,
+      topCount:    pctToCount(p.topPct, n),
+      bottomCount: pctToCount(p.bottomPct, n),
+    }))
 })
 
 // ── performer group totals ────────────────────────────────────────────────────
@@ -322,7 +336,7 @@ const scheduleBarHeight = (day: string, group: 'top' | 'bottom') => {
 
 // ── duration helpers ──────────────────────────────────────────────────────────
 
-const DURATION_BUCKETS = ['< 3 min', '3–6 min', '6–9 min', '9–12 min', '12–15 min', '15+ min']
+const DURATION_BUCKETS = ['< 3 min', '3–7 min', '8–9 min', '10–11 min', '12–15 min', '15+ min']
 
 const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
   if (!data.value) return 0
@@ -718,12 +732,12 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
                 {{ v.title }}
               </NuxtLink>
               <div class="flex text-xs text-right shrink-0">
-                <div class="w-20"><div class="text-emerald-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views</div></div>
-
+                <div class="w-20"><div class="text-emerald-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views/day</div></div>
+                <div class="w-20"><div class="text-emerald-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
-                <div class="w-20"><div class="text-emerald-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">total</div></div>
+                <div class="w-20"><div class="text-emerald-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
             </div>
@@ -756,12 +770,12 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
                 {{ v.title }}
               </NuxtLink>
               <div class="flex text-xs text-right shrink-0">
-                <div class="w-20"><div class="text-red-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views</div></div>
-
+                <div class="w-20"><div class="text-red-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views/day</div></div>
+                <div class="w-20"><div class="text-red-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
-                <div class="w-20"><div class="text-red-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">total</div></div>
+                <div class="w-20"><div class="text-red-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
             </div>
