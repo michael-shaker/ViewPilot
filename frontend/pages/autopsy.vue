@@ -226,11 +226,11 @@ const timelineBuckets = computed(() => {
   const videos = data.value?.timeline_videos ?? []
   if (!videos.length) return []
 
-  // if more than 24 distinct months, collapse to quarters to keep the chart readable
-  const months = new Set(videos.map(v => v.published_at.slice(0, 7)))
-  const useQuarters = months.size > 24
+  // >24 distinct months → collapse to quarters so the chart stays readable
+  const distinctMonths = new Set(videos.map(v => v.published_at.slice(0, 7)))
+  const useQuarters = distinctMonths.size > 24
 
-  const toKey = (iso: string) => {
+  const toKey = (iso: string): string => {
     if (useQuarters) {
       const d = new Date(iso + 'T00:00:00')
       return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`
@@ -238,13 +238,11 @@ const timelineBuckets = computed(() => {
     return iso.slice(0, 7)
   }
 
-  const toLabel = (key: string) => {
-    if (key.includes('-Q')) {
-      const [yr, q] = key.split('-')
-      return `${q} '${yr.slice(2)}`
-    }
+  const toPeriodLabel = (key: string): string => {
+    const last = key.split('-').pop()!
+    if (last.startsWith('Q')) return last
     const [yr, mo] = key.split('-')
-    return new Date(+yr, +mo - 1).toLocaleString('en-US', { month: 'short' }) + ` '${yr.slice(2)}`
+    return new Date(+yr, +mo - 1).toLocaleString('en-US', { month: 'short' })
   }
 
   const map = new Map<string, { top: TimelineVideo[]; mid: TimelineVideo[]; bottom: TimelineVideo[] }>()
@@ -254,28 +252,53 @@ const timelineBuckets = computed(() => {
     map.get(key)![v.group].push(v)
   }
 
-  return [...map.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, g]) => ({ key, label: toLabel(key), ...g }))
+  const sorted = [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+
+  // group by year to find first, last, and center columns for the bracket + label
+  const byYear = new Map<string, string[]>()
+  for (const [key] of sorted) {
+    const yr = key.split('-')[0]
+    if (!byYear.has(yr)) byYear.set(yr, [])
+    byYear.get(yr)!.push(key)
+  }
+
+  return sorted.map(([key, g]) => ({
+    key,
+    periodLabel: toPeriodLabel(key),
+    ...g,
+  }))
 })
 
-// spectrum: emerald → blue (0–0.25), wide blue zone (0.25–0.75), blue → red (0.75–1.0)
-const timelineBoxColor = (rankPct: number) => {
-  let r, g, b
-  if (rankPct <= 0.25) {
-    const t = rankPct / 0.25
-    r = Math.round(16  + (59  - 16)  * t)
-    g = Math.round(185 + (130 - 185) * t)
-    b = Math.round(129 + (246 - 129) * t)
-  } else if (rankPct <= 0.75) {
-    r = 59; g = 130; b = 246   // blue-500 — holds across the whole middle half
-  } else {
-    const t = (rankPct - 0.75) / 0.25
-    r = Math.round(59  + (239 - 59)  * t)
-    g = Math.round(130 + (68  - 130) * t)
-    b = Math.round(246 + (68  - 246) * t)
+// separate year-group row: each entry spans N columns so the label is truly centered
+const yearGroups = computed(() => {
+  const map = new Map<string, number>()
+  for (const b of timelineBuckets.value) {
+    const yr = b.key.split('-')[0]
+    map.set(yr, (map.get(yr) ?? 0) + 1)
   }
-  return `rgba(${r},${g},${b},0.8)`
+  return [...map.entries()].map(([year, count]) => ({ year, count }))
+})
+
+// 5-stop gradient: green → teal → blue → purple → red
+const TIMELINE_STOPS = [
+  [16,  185, 129],  // emerald-500  rank 0.00 (best)
+  [6,   182, 212],  // cyan-500     rank 0.25
+  [59,  130, 246],  // blue-500     rank 0.50
+  [168,  85, 247],  // purple-500   rank 0.75
+  [239,  68,  68],  // red-500      rank 1.00 (worst)
+] as const
+
+const timelineBoxColor = (rankPct: number) => {
+  const n   = TIMELINE_STOPS.length - 1
+  const pos = Math.min(rankPct * n, n - 0.0001)
+  const i   = Math.floor(pos)
+  const t   = pos - i
+  const [r1, g1, b1] = TIMELINE_STOPS[i]
+  const [r2, g2, b2] = TIMELINE_STOPS[i + 1]
+  const r = Math.round(r1 + (r2 - r1) * t)
+  const g = Math.round(g1 + (g2 - g1) * t)
+  const b = Math.round(b1 + (b2 - b1) * t)
+  return `rgba(${r},${g},${b},0.85)`
 }
 
 const cycleMetricSort = () => {
@@ -400,15 +423,19 @@ const titleFeatures = computed(() => {
 // ── title word sets (shared words hidden, same logic as tags) ────────────
 
 const titleWordSets = computed(() => {
-  if (!data.value) return { top: [], bottom: [], sharedCount: 0 }
+  if (!data.value) return { top: [], bottom: [], topMax: 1, bottomMax: 1, sharedCount: 0 }
   const topWords    = data.value.title_analysis.top.top_words    ?? []
   const bottomWords = data.value.title_analysis.bottom.top_words ?? []
   const topSet    = new Set(topWords.map(w => w.word))
   const bottomSet = new Set(bottomWords.map(w => w.word))
   const shared = new Set([...topSet].filter(w => bottomSet.has(w)))
+  const top    = topWords.filter(w => !shared.has(w.word))
+  const bottom = bottomWords.filter(w => !shared.has(w.word))
   return {
-    top:         topWords.filter(w => !shared.has(w.word)),
-    bottom:      bottomWords.filter(w => !shared.has(w.word)),
+    top,
+    bottom,
+    topMax:    Math.max(...top.map(w => w.count),    1),
+    bottomMax: Math.max(...bottom.map(w => w.count), 1),
     sharedCount: shared.size,
   }
 })
@@ -693,50 +720,61 @@ const mergedDurationBuckets = computed(() => {
             <div class="flex items-center gap-2 text-xs text-gray-500">
               <span>best</span>
               <span
-                class="w-24 h-2.5 rounded-full"
-                style="background: linear-gradient(to right, rgba(16,185,129,0.8) 0%, rgba(59,130,246,0.8) 25%, rgba(59,130,246,0.8) 75%, rgba(239,68,68,0.8) 100%)"
+                class="w-44 h-2.5 rounded-full"
+                style="background: linear-gradient(to right, rgba(16,185,129,0.85) 0%, rgba(6,182,212,0.85) 20%, rgba(59,130,246,0.85) 45%, rgba(168,85,247,0.85) 70%, rgba(236,72,153,0.85) 85%, rgba(239,68,68,0.85) 100%)"
               ></span>
               <span>worst</span>
             </div>
           </div>
 
-          <!-- scrollable chart — columns fill full width, grow upward from a shared baseline -->
-          <div class="overflow-x-auto">
-            <div class="flex items-end justify-between pb-1 min-w-full">
+          <!-- chart — columns share available width, no scrolling, shrinks proportionally -->
+          <div class="w-full overflow-hidden px-2">
+            <div class="flex items-end gap-1 w-full">
               <div
                 v-for="b in timelineBuckets" :key="b.key"
-                class="flex flex-col items-center"
+                class="flex flex-col items-center flex-1 min-w-0"
               >
-                <!-- stacked boxes: DOM order bottom→mid→top, flex-col-reverse renders bottom at floor -->
-                <div class="flex flex-col-reverse gap-0.5 mb-2">
+                <!-- stacked bricks: dom order bottom→mid→top, flex-col-reverse renders bottom at baseline -->
+                <div class="flex flex-col-reverse gap-1 mb-2 w-full">
                   <NuxtLink
                     v-for="v in b.bottom" :key="v.id"
                     :to="`/video/${v.id}`"
                     :title="v.title"
-                    class="w-6 h-4 rounded-sm hover:scale-110 transition block"
-                    :style="{ background: timelineBoxColor(v.rank_pct) }"
+                    class="w-full h-[15px] rounded hover:brightness-125 transition block"
+                    :style="{ background: timelineBoxColor(v.rank_pct), boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 0 2px rgba(0,0,0,0.55)' }"
                   />
                   <NuxtLink
                     v-for="v in b.mid" :key="v.id"
                     :to="`/video/${v.id}`"
                     :title="v.title"
-                    class="w-6 h-4 rounded-sm hover:scale-110 transition block"
-                    :style="{ background: timelineBoxColor(v.rank_pct) }"
+                    class="w-full h-[15px] rounded hover:brightness-125 transition block"
+                    :style="{ background: timelineBoxColor(v.rank_pct), boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 0 2px rgba(0,0,0,0.55)' }"
                   />
                   <NuxtLink
                     v-for="v in b.top" :key="v.id"
                     :to="`/video/${v.id}`"
                     :title="v.title"
-                    class="w-6 h-4 rounded-sm hover:scale-110 transition block"
-                    :style="{ background: timelineBoxColor(v.rank_pct) }"
+                    class="w-full h-[15px] rounded hover:brightness-125 transition block"
+                    :style="{ background: timelineBoxColor(v.rank_pct), boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 0 0 2px rgba(0,0,0,0.55)' }"
                   />
                 </div>
-                <!-- x-axis label written bottom-to-top so it doesn't overflow -->
-                <div
-                  class="text-xs text-gray-500 shrink-0"
-                  style="writing-mode: vertical-lr; transform: rotate(180deg)"
-                >{{ b.label }}</div>
+                <!-- period label — same height on every column -->
+                <div class="h-4 flex items-center justify-center w-full mt-1">
+                  <span class="text-xs leading-none text-white/75">{{ b.periodLabel }}</span>
+                </div>
               </div>
+            </div>
+          </div>
+
+          <!-- year groups row — each span is flex-[N] so the label is truly centered over its quarters -->
+          <div class="flex w-full gap-1 px-2 mt-1">
+            <div
+              v-for="yg in yearGroups" :key="yg.year"
+              class="flex flex-col items-center min-w-0"
+              :style="{ flex: yg.count }"
+            >
+              <div class="w-full h-2 border-t border-l border-r border-white/60 rounded-none"></div>
+              <span class="text-[10px] leading-none text-white/50 mt-1">{{ yg.year }}</span>
             </div>
           </div>
         </div>
@@ -814,21 +852,23 @@ const mergedDurationBuckets = computed(() => {
             <div class="grid grid-cols-2 gap-6">
               <div>
                 <div class="text-xs text-emerald-400/70 uppercase tracking-wider mb-3">Words in top titles</div>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-wrap gap-2 items-center">
                   <span
                     v-for="w in titleWordSets.top" :key="w.word"
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/25"
-                  >{{ w.word }}<span class="text-emerald-500/70 text-xs font-medium">{{ w.count }}</span></span>
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/25 leading-none"
+                    :style="{ fontSize: (0.75 + (w.count / titleWordSets.topMax) * 0.75) + 'rem' }"
+                  >{{ w.word }}<span class="text-emerald-500/70 font-medium" style="font-size: 0.65em">{{ w.count }}</span></span>
                   <span v-if="!titleWordSets.top.length" class="text-gray-600 text-sm">—</span>
                 </div>
               </div>
               <div>
                 <div class="text-xs text-red-400/70 uppercase tracking-wider mb-3">Words in bottom titles</div>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-wrap gap-2 items-center">
                   <span
                     v-for="w in titleWordSets.bottom" :key="w.word"
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-red-500/15 text-red-300 ring-1 ring-red-500/25"
-                  >{{ w.word }}<span class="text-red-500/70 text-xs font-medium">{{ w.count }}</span></span>
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/15 text-red-300 ring-1 ring-red-500/25 leading-none"
+                    :style="{ fontSize: (0.75 + (w.count / titleWordSets.bottomMax) * 0.75) + 'rem' }"
+                  >{{ w.word }}<span class="text-red-500/70 font-medium" style="font-size: 0.65em">{{ w.count }}</span></span>
                   <span v-if="!titleWordSets.bottom.length" class="text-gray-600 text-sm">—</span>
                 </div>
               </div>

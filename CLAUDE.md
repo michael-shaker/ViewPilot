@@ -44,7 +44,7 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - **Python command:** Use `py` not `python` on this Windows machine
 - **Package manager:** uv
 - **Local services:** Docker Compose runs: api (FastAPI), db (pgvector/pgvector:pg16), redis (redis:7-alpine)
-- **Frontend dev server not set up yet** — Node.js will be needed later for Nuxt 3
+- **Frontend dev server:** Node.js installed, Nuxt 3 running on port 3000 (`cd frontend && npm run dev`)
 
 ## Current Progress
 
@@ -66,8 +66,9 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - [x] View velocity — views per day since publish, shown in dashboard sub-row
 - [x] Video detail page — YouTube embed, stat pills, analytics section, description, tags, metadata, stats history table
 - [x] Stats history — real daily data from Analytics API, full lifetime coverage (180-day chunks), cumulative totals, today pinned at top with live stats
-- [ ] Best vs Worst Autopsy (top 10% vs bottom 10% pattern detection)
-- [ ] Dashboard enhancements (charts, sparklines, date range filters)
+- [x] Best vs Worst Autopsy — top vs bottom performer comparison page, fully built
+- [x] Revenue + RPM — pulled from Analytics API, shown in autopsy and video table
+- [ ] Dashboard enhancements (charts, sparklines, date range filters, Shorts toggle)
 
 ### Phase 3: AI & Clustering — NOT STARTED
 - [ ] Embedding pipeline (sentence-transformers → pgvector)
@@ -342,6 +343,47 @@ docker-compose.yml → Local dev: api + db + redis
 4. Open `http://localhost:3000`
 
 **Next:** Best vs Worst Autopsy → then Phase 3 ML pipeline
+
+### 2026-02-27 (Part 4) — Autopsy Page Built
+
+**Completed:**
+- `backend/app/api/v1/autopsy.py` — new endpoint. Takes the N most recent videos (default 50), splits them into top 33% and bottom 33% by total views. Calculates per-group averages for CTR, avg watch time, views/day, revenue, RPM. Also detects title patterns (question marks, numbers, colons, all-caps words) and groups duration into buckets (under 5 min, 5–15, 15–30, 30+). Returns both groups as structured JSON.
+- `frontend/pages/autopsy.vue` — full autopsy page. Two side-by-side performer cards (Top vs Bottom), each showing: total views, avg CTR, avg watch time, avg revenue, avg RPM, top title patterns, duration bucket breakdown. Compare button triggers a fresh API call. Window size selector (20/50/100 videos). Navigation link added to dashboard.
+
+**Key files created/modified:**
+- `backend/app/api/v1/autopsy.py` — new route, registered in main.py
+- `frontend/pages/autopsy.vue` — new page
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+**Next:** Revenue + RPM → Dashboard overhaul
+
+### 2026-02-28 — Revenue, RPM, Autopsy Improvements + Dashboard Overhaul
+
+**Completed:**
+- `backend/app/services/youtube.py` — added `estimated_revenue` and `rpm` fields to Analytics API pull. Both stored in `video_analytics` table on each sync.
+- `backend/app/api/v1/videos.py` — revenue and RPM exposed in video list response and video detail response. Sort by revenue and RPM added to the video table.
+- `backend/app/api/v1/autopsy.py` — added 30-day rolling views per video (separate Analytics API call for recent window). Smarter title pattern detection. Duration buckets refined. Performer totals footer added. Ranking changed from views/day to total views.
+- `frontend/pages/autopsy.vue` — revenue + RPM shown in performer cards. Total views moved to rightmost column. Large revenue numbers rounded. Totals footer cleaned up. Title pattern chips improved.
+- `frontend/pages/dashboard.vue` — full hero card overhaul: channel avatar + name + action buttons in top section, stats (subscribers/views/videos/last synced) in a dark footer strip below. Sticky nav with blur. Video table headers now highlight active sort column. Revenue and RPM columns added to table. Analytics sub-row chips unchanged. Rounded corners bumped to `rounded-2xl` throughout.
+
+**What's still missing on dashboard (planned):**
+- Charts / sparklines for view trends
+- Date range filter on the video table
+- Shorts filter toggle (data is there, `is_short` field exists, just no UI)
+- Avg view % chip missing from analytics sub-row
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+**Next:** Dashboard remaining items (sparklines, filters) → Phase 3 ML pipeline (embeddings + clustering)
 
 ### Next Session — Nuxt 3 Frontend (archived plan)
 
