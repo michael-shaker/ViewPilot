@@ -182,14 +182,22 @@ const formatCtr = (ctr: number | null) => {
             <p class="text-xs text-gray-400 mt-0.5">Videos</p>
           </div>
         </div>
-        <div class="ml-4 flex flex-col items-end gap-1">
-          <button
-            @click="sync"
-            :disabled="syncing"
-            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition"
-          >
-            {{ syncing ? 'Syncing...' : 'Sync' }}
-          </button>
+        <div class="ml-4 flex flex-col items-end gap-2">
+          <div class="flex gap-2">
+            <NuxtLink
+              to="/autopsy"
+              class="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium hover:bg-purple-600 transition"
+            >
+              Autopsy
+            </NuxtLink>
+            <button
+              @click="sync"
+              :disabled="syncing"
+              class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition"
+            >
+              {{ syncing ? 'Syncing...' : 'Sync' }}
+            </button>
+          </div>
           <span v-if="syncError" class="text-xs text-red-400">{{ syncError }}</span>
         </div>
       </div>

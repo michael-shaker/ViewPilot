@@ -63,9 +63,10 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - [x] YouTube Analytics API integration (avg view duration, estimated minutes watched — live in DB)
 - [x] YouTube Reporting API integration (impressions + CTR via daily CSV — job created, data pending 24-48h)
 - [x] View velocity — views per day since publish, shown in dashboard sub-row
+- [x] Video detail page — YouTube embed, stat pills, analytics section, description, tags, metadata, stats history table
+- [x] Stats history — real daily data from Analytics API, full lifetime coverage (180-day chunks), cumulative totals, today pinned at top with live stats
 - [ ] Best vs Worst Autopsy (top 10% vs bottom 10% pattern detection)
 - [ ] Dashboard enhancements (charts, sparklines, date range filters)
-- [ ] Video detail view
 
 ### Phase 3: AI & Clustering — NOT STARTED
 - [ ] Embedding pipeline (sentence-transformers → pgvector)
@@ -320,6 +321,26 @@ docker-compose.yml → Local dev: api + db + redis
 4. Open `http://localhost:3000`
 
 **Next:** Fix dashboard background → Best vs Worst Autopsy → Video detail page
+
+### 2026-02-27 (Part 3) — Video Detail Page + Stats History
+
+**Completed:**
+- `frontend/pages/video/[id].vue` — full video detail page built: YouTube embed, stat pills (views, views/day, likes, comments), analytics section (CTR, avg watch time, impressions, avg view %), expandable description, metadata sidebar, tags, stats history table
+- Stats history now fetches real daily data from YouTube Analytics API via `GET /videos/{id}/history`
+- `backend/app/services/youtube.py` — fixed history fetch to use 180-day date range chunks instead of paginating with `startIndex` (which was capped at 200 rows and not reliably paginatable in Analytics API v2). Now covers the full video lifetime however long it is
+- Stats history shows cumulative totals (total views/likes/comments at each date, not daily increments)
+- Stats history always shows today's live stats pinned at the top row (uses video's real-time counts from main fetch, bypasses Analytics API's 2-3 day lag), then 8 evenly-spaced historical points below, with release day always at the bottom
+- Fixed date timezone bug — was using `toISOString()` (UTC) for "today" which showed the wrong date for EST users after 7pm. Fixed to use local date components
+- `backend/app/api/v1/videos.py` — added `/videos/{video_id}/history` endpoint
+- Est. minutes watched now shows full number with commas (e.g. `102,347`) instead of K abbreviation
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+**Next:** Best vs Worst Autopsy → then Phase 3 ML pipeline
 
 ### Next Session — Nuxt 3 Frontend (archived plan)
 
