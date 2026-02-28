@@ -184,7 +184,16 @@ async def download_reach_reports(
     """download all available reach report csv files for the job and return parsed rows.
     each row is a dict with video_id, impressions, and ctr for a single day.
     we aggregate these in sync.py to get per-video totals."""
-    reporting = _build_reporting_client(access_token, refresh_token)
+
+    # build creds directly so we can read back the token after any auto-refresh
+    creds = Credentials(
+        token=access_token,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret,
+    )
+    reporting = build("youtubereporting", "v1", credentials=creds)
 
     # get the list of available report files (google generates one per day)
     reports_resp = await _run(
@@ -195,7 +204,9 @@ async def download_reach_reports(
         return []
 
     all_rows = []
-    auth_headers = {"Authorization": f"Bearer {access_token}"}
+    # use creds.token here — the api call above may have silently refreshed it,
+    # so the original access_token variable could already be expired and wrong
+    auth_headers = {"Authorization": f"Bearer {creds.token}"}
 
     async with httpx.AsyncClient(timeout=30) as client:
         for report in reports:
@@ -205,6 +216,7 @@ async def download_reach_reports(
 
             resp = await client.get(download_url, headers=auth_headers)
             if resp.status_code != 200:
+                print(f"reach reports: csv download failed with status {resp.status_code}")
                 continue
 
             # strip utf-8 bom if present, then parse csv
