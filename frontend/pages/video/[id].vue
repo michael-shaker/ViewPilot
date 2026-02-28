@@ -44,15 +44,38 @@ const CATEGORIES: Record<string, string> = {
   '27': 'Education', '28': 'Science & Technology', '29': 'Nonprofits & Activism',
 }
 
+interface DailyRow {
+  day: string       // "YYYY-MM-DD"
+  views: number
+  likes: number
+  comments: number
+}
+
 const video = ref<Video | null>(null)
 const loadError = ref<string | null>(null)
 const descExpanded = ref(false)
+const dailyHistory = ref<DailyRow[]>([])
+const historyLoading = ref(true)
 
 onMounted(async () => {
   try {
     video.value = await api<Video>(`/api/v1/videos/${route.params.id}`)
   } catch {
     loadError.value = 'could not load video'
+    return
+  }
+
+  // fetch real daily data from analytics api separately so the page loads fast
+  // and the history table fills in after
+  try {
+    const res = await api<{ daily: { day: string, views: number, likes: number, comments: number }[] }>(
+      `/api/v1/videos/${route.params.id}/history`
+    )
+    dailyHistory.value = res.daily
+  } catch {
+    // silently fall back to empty — table will just show nothing
+  } finally {
+    historyLoading.value = false
   }
 })
 
@@ -101,6 +124,78 @@ const hasAnalytics = computed(() =>
     video.value.average_view_percentage != null
   )
 )
+
+interface HistoryRow {
+  label: string
+  view_count: number
+  like_count: number
+  comment_count: number
+}
+
+const fmtDay = (day: string) => {
+  // "Nov. 12, 2023" format — add period after 3-letter month abbreviation
+  const s = new Date(day + 'T12:00:00').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric'
+  })
+  return s.replace(/^([A-Za-z]{3})\b/, '$1.')
+}
+
+// stats history: today's row pinned at top (live stats, no api lag), then up to 9 points
+// from the analytics daily data spread from release day to most recent available
+const filteredHistory = computed((): HistoryRow[] => {
+  if (!video.value) return []
+
+  // today row always uses the live view/like/comment counts from the main video fetch
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const todayLabel = fmtDay(todayStr)
+  const todayRow: HistoryRow = {
+    label: todayLabel,
+    view_count: video.value.view_count,
+    like_count: video.value.like_count,
+    comment_count: video.value.comment_count,
+  }
+
+  const data = dailyHistory.value
+  if (!data.length) return [todayRow]
+
+  // build running cumulative totals from analytics data
+  let cumViews = 0, cumLikes = 0, cumComments = 0
+  const cumulative = data.map(d => {
+    cumViews += d.views
+    cumLikes += d.likes
+    cumComments += d.comments
+    return { day: d.day, views: cumViews, likes: cumLikes, comments: cumComments }
+  })
+
+  // always pin day 1 (release), then pick up to 8 evenly spaced points from the rest
+  const first = cumulative[0]
+  let rest: typeof cumulative = []
+  if (cumulative.length > 1) {
+    const restData = cumulative.slice(1)
+    const count = Math.min(8, restData.length)
+    const step = (restData.length - 1) / Math.max(count - 1, 1)
+    rest = Array.from({ length: count }, (_, i) => restData[Math.round(i * step)])
+  }
+
+  const historicalRows = [first, ...rest].map(d => ({
+    label: fmtDay(d.day),
+    view_count: d.views,
+    like_count: d.likes,
+    comment_count: d.comments,
+  })).reverse() // newest historical first
+
+  // today row at the very top, then historical rows below
+  return [todayRow, ...historicalRows]
+})
+
+const historyIntervalLabel = computed(() => {
+  const total = dailyHistory.value.length
+  if (!total) return ''
+  if (total <= 10) return `All ${total} days of data`
+  const showing = filteredHistory.value.length
+  return `${showing} days across ${total} total days of data`
+})
 </script>
 
 <template>
@@ -243,7 +338,7 @@ const hasAnalytics = computed(() =>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-400">Est. mins watched</span>
-              <span>{{ formatNum(video.estimated_minutes_watched) }}</span>
+              <span>{{ video.estimated_minutes_watched != null ? video.estimated_minutes_watched.toLocaleString() : '—' }}</span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-gray-400">Video ID</span>
@@ -268,11 +363,24 @@ const hasAnalytics = computed(() =>
       </div>
 
       <!-- stats history -->
-      <div v-if="video.stats_history.length" class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
-        <div class="px-6 py-4 border-b border-white/10">
+      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-white/10 flex items-baseline justify-between">
           <h2 class="text-xs uppercase tracking-widest text-gray-400">Stats History</h2>
+          <span class="text-xs text-gray-500">{{ historyIntervalLabel }}</span>
         </div>
-        <table class="w-full text-sm">
+
+        <!-- loading -->
+        <div v-if="historyLoading" class="px-6 py-8 text-center text-sm text-gray-500">
+          Fetching historical data from YouTube...
+        </div>
+
+        <!-- no data -->
+        <div v-else-if="!filteredHistory.length" class="px-6 py-8 text-center text-sm text-gray-500">
+          No historical data available yet.
+        </div>
+
+        <!-- table -->
+        <table v-else class="w-full text-sm">
           <thead class="border-b border-white/10 text-gray-400 text-xs uppercase tracking-wider">
             <tr>
               <th class="text-left px-6 py-3">Date</th>
@@ -282,8 +390,8 @@ const hasAnalytics = computed(() =>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <tr v-for="(s, i) in video.stats_history" :key="i" class="hover:bg-white/5 transition">
-              <td class="px-6 py-3 text-gray-400 text-xs">{{ formatDateTime(s.fetched_at) }}</td>
+            <tr v-for="(s, i) in filteredHistory" :key="i" class="hover:bg-white/5 transition">
+              <td class="px-6 py-3 text-gray-400 text-xs">{{ s.label }}</td>
               <td class="px-6 py-3 text-right">{{ formatNum(s.view_count) }}</td>
               <td class="px-6 py-3 text-right text-gray-400">{{ formatNum(s.like_count) }}</td>
               <td class="px-6 py-3 text-right text-gray-400">{{ formatNum(s.comment_count) }}</td>

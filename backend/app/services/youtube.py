@@ -1,7 +1,7 @@
 import asyncio
 import csv
 import io
-from datetime import date
+from datetime import date, timedelta
 from functools import partial
 
 import httpx
@@ -154,6 +154,49 @@ async def get_channel_analytics(
         start_index += 200
 
     return results
+
+
+async def get_video_daily_history(
+    access_token: str,
+    refresh_token: str | None,
+    youtube_video_id: str,
+    start_date: str,
+) -> list[dict]:
+    """fetch real daily views/likes/comments for a single video from its publish date to today.
+    returns a list of dicts like {day, views, likes, comments} sorted oldest → newest."""
+    analytics = _build_analytics_client(access_token, refresh_token)
+    today = date.today()
+
+    all_rows: list[dict] = []
+    chunk_start = date.fromisoformat(start_date)
+
+    # fetch in 180-day chunks — the api caps at 200 rows per call and may not paginate
+    # reliably, so splitting by date range guarantees we get every day from publish to now
+    while chunk_start <= today:
+        chunk_end = min(chunk_start + timedelta(days=179), today)
+
+        response = await _run(
+            analytics.reports().query(
+                ids="channel==MINE",
+                startDate=chunk_start.isoformat(),
+                endDate=chunk_end.isoformat(),
+                dimensions="day",
+                metrics="views,likes,comments",
+                filters=f"video=={youtube_video_id}",
+                sort="day",
+                maxResults=200,
+            ).execute
+        )
+
+        rows = response.get("rows") or []
+        if rows:
+            headers = [h["name"] for h in response["columnHeaders"]]
+            for row in rows:
+                all_rows.append(dict(zip(headers, row)))
+
+        chunk_start = chunk_end + timedelta(days=1)
+
+    return all_rows
 
 
 async def ensure_reach_job(access_token: str, refresh_token: str | None) -> str:

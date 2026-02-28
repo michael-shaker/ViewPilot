@@ -5,12 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.channels import Channel
 from app.models.stats import VideoAnalytics, VideoStats
 from app.models.users import User
 from app.models.videos import Video
+from app.services import youtube as yt
 from app.utils.dependencies import get_current_user
+from app.utils.security import decrypt_token
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -193,3 +196,38 @@ async def get_video(
             for s in stats_history
         ],
     }
+
+
+@router.get("/{video_id}/history")
+async def get_video_history(
+    video_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """fetch real daily view/like/comment counts from the youtube analytics api
+    for a single video, from its publish date up to today."""
+    video = await db.get(Video, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="video not found")
+
+    channel = await db.get(Channel, video.channel_id)
+    if not channel or channel.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="video not found")
+
+    access_token = decrypt_token(current_user.access_token, settings.secret_key)
+    refresh_token = (
+        decrypt_token(current_user.refresh_token, settings.secret_key)
+        if current_user.refresh_token
+        else None
+    )
+
+    start_date = video.published_at.strftime("%Y-%m-%d")
+
+    try:
+        daily = await yt.get_video_daily_history(
+            access_token, refresh_token, video.youtube_video_id, start_date
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"analytics api error: {exc}")
+
+    return {"daily": daily}
