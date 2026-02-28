@@ -56,7 +56,9 @@ async def _sync_analytics(
     yt_to_db = {row[0]: row[1] for row in result.all()}
 
     # ── step a: analytics api (views, avg watch time, avg watch %) ────────────
-    # one api call returns lifetime aggregates for every video at once
+    # one api call returns lifetime aggregates for every video at once.
+    # keep analytics_data in outer scope so step b can use views for rpm calculation
+    analytics_data: dict = {}
     try:
         analytics_data = await yt.get_channel_analytics(access_token, refresh_token)
         for yt_vid_id, data in analytics_data.items():
@@ -101,7 +103,49 @@ async def _sync_analytics(
     except Exception as exc:
         print(f"analytics api step skipped: {exc}")
 
-    # ── step b: reporting api (impressions + ctr from daily csv reports) ──────
+    # ── step b: revenue api (estimated revenue per video) ────────────────────
+    # requires yt-analytics-monetary.readonly scope — gracefully skipped if user
+    # hasn't re-authorized with the new scope yet.
+    # rpm and cpm are not supported as per-video api metrics, so we calculate
+    # rpm ourselves: (estimatedRevenue / views) * 1000
+    try:
+        revenue_data = await yt.get_channel_revenue(access_token, refresh_token)
+        for yt_vid_id, data in revenue_data.items():
+            db_vid_id = yt_to_db.get(yt_vid_id)
+            if not db_vid_id:
+                continue
+            rev = _safe_float(data.get("estimatedRevenue"))
+            ad_rev = _safe_float(data.get("estimatedAdRevenue"))
+            # use views from step a's analytics data to calculate rpm (revenue per 1000 views)
+            views = _safe_float(analytics_data.get(yt_vid_id, {}).get("views")) if analytics_data else None
+            rpm = round(rev / views * 1000, 4) if rev is not None and views and views > 0 else None
+            stmt = (
+                pg_insert(VideoAnalytics)
+                .values(
+                    id=uuid.uuid4(),
+                    video_id=db_vid_id,
+                    date=today,
+                    estimated_revenue=rev,
+                    estimated_ad_revenue=ad_rev,
+                    rpm=rpm,
+                    fetched_at=_utcnow(),
+                )
+                .on_conflict_do_update(
+                    constraint="uq_video_analytics_video_date",
+                    set_={
+                        "estimated_revenue": rev,
+                        "estimated_ad_revenue": ad_rev,
+                        "rpm": rpm,
+                        "fetched_at": _utcnow(),
+                    },
+                )
+            )
+            await db.execute(stmt)
+        print(f"revenue api: saved data for {len(revenue_data)} videos")
+    except Exception as exc:
+        print(f"revenue api step skipped: {exc}")
+
+    # ── step c: reporting api (impressions + ctr from daily csv reports) ──────
     # impressions/ctr aren't available in the analytics api — they come from
     # a separate "reporting api" that generates daily csv files we download.
     # we sum up all available daily rows to get per-video totals, then

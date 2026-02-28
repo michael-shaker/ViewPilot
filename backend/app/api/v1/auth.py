@@ -17,13 +17,14 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-# scopes we need: profile info + read-only access to youtube + analytics
+# scopes we need: profile info + read-only access to youtube + analytics + revenue
 SCOPES = " ".join([
     "openid",
     "email",
     "profile",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
+    "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
 ])
 
 

@@ -72,6 +72,8 @@ interface VideoSummary {
   engagement_rate: number
   duration_seconds: number | null
   is_short: boolean
+  rpm: number | null
+  estimated_revenue: number | null
 }
 
 interface AutopsyData {
@@ -94,8 +96,8 @@ interface Channel {
 // ── state ─────────────────────────────────────────────────────────────────────
 
 const channel = ref<Channel | null>(null)
-const windowSize = ref(50)
-const tierPct = ref(20)
+const windowSize = ref(100)
+const tierPct = ref(10)
 const data = ref<AutopsyData | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -135,6 +137,13 @@ const fmtNum = (n: number | null) => {
   return n.toLocaleString()
 }
 
+// only abbreviate at millions — everything else gets full number with commas
+const fmtNumFull = (n: number | null) => {
+  if (n == null) return '—'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  return Math.round(n).toLocaleString()
+}
+
 const fmtDuration = (secs: number | null) => {
   if (secs == null) return '—'
   const h = Math.floor(secs / 3600)
@@ -152,6 +161,9 @@ const fmtDelta = (pct: number | null) => {
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+const fmtMoney = (n: number | null) =>
+  n == null ? '—' : '$' + n.toFixed(2)
 
 const deltaColor = (pct: number | null) => {
   if (pct == null) return 'text-gray-500'
@@ -178,17 +190,35 @@ const METRIC_DEFS = [
   { key: 'avg_view_duration',       label: 'Avg Watch Time',       fmt: (v: number) => fmtDuration(v) },
   { key: 'avg_view_pct',            label: 'Avg View %',           fmt: (v: number) => v.toFixed(1) + '%' },
   { key: 'engagement_rate',         label: 'Engagement Rate',      fmt: (v: number) => v.toFixed(2) + '%' },
-  { key: 'comment_rate',            label: 'Comment Rate',         fmt: (v: number) => v.toFixed(3) + '%' },
-  { key: 'view_count',              label: 'Total Views',          fmt: (v: number) => fmtNum(v) },
-  { key: 'impressions',             label: 'Impressions',          fmt: (v: number) => fmtNum(v) },
-  { key: 'estimated_minutes_watched', label: 'Est. Mins Watched',  fmt: (v: number) => fmtNum(v) },
+  { key: 'comment_rate',            label: 'Comments per 1K Views', fmt: (v: number) => (v * 10).toFixed(2) },
+  { key: 'view_count',              label: 'Total Views',          fmt: (v: number) => fmtNumFull(v) },
+  { key: 'impressions',             label: 'Impressions',          fmt: (v: number) => fmtNumFull(v) },
+  { key: 'estimated_minutes_watched', label: 'Mins Watched',      fmt: (v: number) => fmtNumFull(v) },
+  { key: 'rpm',                     label: 'RPM',                  fmt: (v: number) => fmtMoney(v) },
+  { key: 'estimated_revenue',       label: 'Revenue',         fmt: (v: number) => fmtMoney(v) },
   { key: 'duration_seconds',        label: 'Avg Duration',         fmt: (v: number) => fmtDuration(v) },
   { key: 'tag_count',               label: 'Avg Tag Count',        fmt: (v: number) => v.toFixed(1) },
 ]
 
+// ── metrics table sorting (difference column only, 3-state: default → desc → asc → default) ───
+
+const metricDeltaSort = ref<'desc' | 'asc' | null>(null)
+
+const cycleMetricSort = () => {
+  if (metricDeltaSort.value === null) metricDeltaSort.value = 'desc'
+  else if (metricDeltaSort.value === 'desc') metricDeltaSort.value = 'asc'
+  else metricDeltaSort.value = null
+}
+
+const metricDeltaIcon = computed(() => {
+  if (metricDeltaSort.value === 'desc') return '↓'
+  if (metricDeltaSort.value === 'asc') return '↑'
+  return '↕'
+})
+
 const metricRows = computed(() => {
   if (!data.value) return []
-  return METRIC_DEFS.map(def => {
+  const rows = METRIC_DEFS.map(def => {
     const m = data.value!.key_metrics[def.key]
     return {
       ...def,
@@ -198,6 +228,22 @@ const metricRows = computed(() => {
       hasData:   (m?.top_available ?? 0) > 0,
     }
   })
+
+  // no-data rows always stay at the bottom no matter what sort is active
+  const withData = rows.filter(r => r.hasData)
+  const noData   = rows.filter(r => !r.hasData)
+
+  if (metricDeltaSort.value) {
+    const dir = metricDeltaSort.value === 'desc' ? -1 : 1
+    withData.sort((a, b) => {
+      if (a.delta == null && b.delta == null) return 0
+      if (a.delta == null) return 1
+      if (b.delta == null) return -1
+      return dir * (a.delta - b.delta)
+    })
+  }
+
+  return [...withData, ...noData]
 })
 
 // ── hero cards (4 most actionable metrics) ────────────────────────────────────
@@ -208,10 +254,10 @@ const heroMetrics = computed(() => {
   const tier = data.value.meta.tier_pct
   return [
     {
-      label: 'Views per Day',
-      topFmt: fmtNum(Math.round(km.views_per_day?.top ?? 0)),
-      bottomFmt: fmtNum(Math.round(km.views_per_day?.bottom ?? 0)),
-      delta: km.views_per_day?.delta_pct ?? null,
+      label: 'Avg View %',
+      topFmt: km.avg_view_pct?.top != null ? km.avg_view_pct.top.toFixed(1) + '%' : '—',
+      bottomFmt: km.avg_view_pct?.bottom != null ? km.avg_view_pct.bottom.toFixed(1) + '%' : '—',
+      delta: km.avg_view_pct?.delta_pct ?? null,
     },
     {
       label: 'Click-Through Rate',
@@ -251,6 +297,16 @@ const titleFeatures = computed(() => {
     { label: 'Has ALL CAPS word',   topPct: t.has_all_caps_pct,    bottomPct: b.has_all_caps_pct,    topCount: pctToCount(t.has_all_caps_pct, n),    bottomCount: pctToCount(b.has_all_caps_pct, n) },
   ]
 })
+
+// ── performer group totals ────────────────────────────────────────────────────
+
+const groupTotals = (videos: VideoSummary[]) => {
+  const vpd = videos.reduce((sum, v) => sum + v.views_per_day, 0)
+  const views = videos.reduce((sum, v) => sum + v.view_count, 0)
+  const revenueVideos = videos.filter(v => v.estimated_revenue != null)
+  const revenue = revenueVideos.length ? revenueVideos.reduce((sum, v) => sum + (v.estimated_revenue ?? 0), 0) : null
+  return { vpd, views, revenue }
+}
 
 // ── schedule bar chart helpers ────────────────────────────────────────────────
 
@@ -304,7 +360,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
             <span class="text-gray-400 text-xs uppercase tracking-wider">Window</span>
             <div class="flex gap-1">
               <button
-                v-for="w in [20, 50, 100]" :key="w"
+                v-for="w in [20, 50, 100, 200]" :key="w"
                 @click="windowSize = w"
                 :class="windowSize === w
                   ? 'bg-indigo-600 text-white'
@@ -363,7 +419,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div
             v-for="m in heroMetrics" :key="m.label"
-            class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-5"
+            class="bg-white/15 ring-1 ring-white/25 rounded-2xl p-5"
           >
             <div class="text-xs uppercase tracking-widest text-gray-400 mb-4 text-center">{{ m.label }}</div>
             <div class="flex justify-around items-end mb-4">
@@ -387,7 +443,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         </div>
 
         <!-- ── all metrics table ─────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">All Metrics</h2>
           </div>
@@ -397,7 +453,9 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
                 <th class="text-left px-6 py-3">Metric</th>
                 <th class="px-6 py-3 text-right text-emerald-400/70">Top {{ data.meta.tier_pct }}%</th>
                 <th class="px-6 py-3 text-right text-red-400/70">Bottom {{ data.meta.tier_pct }}%</th>
-                <th class="px-6 py-3 text-right">Difference</th>
+                <th class="px-6 py-3 text-right cursor-pointer hover:text-gray-300 select-none" @click="cycleMetricSort">
+                  Difference {{ metricDeltaIcon }}
+                </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
@@ -421,7 +479,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         </div>
 
         <!-- ── title DNA ─────────────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl p-6">
           <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-6">Title DNA</h2>
 
           <!-- length + word count -->
@@ -493,7 +551,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         </div>
 
         <!-- ── publishing schedule ────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl p-6">
           <div class="flex items-start justify-between mb-6">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Publishing Schedule</h2>
             <div class="flex gap-4 text-xs">
@@ -556,7 +614,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         </div>
 
         <!-- ── duration sweet spot ────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl p-6">
           <div class="flex items-start justify-between mb-6">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Duration Sweet Spot</h2>
             <span v-if="data.duration_analysis.best_bucket" class="text-xs text-emerald-400">
@@ -606,7 +664,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         </div>
 
         <!-- ── tags ──────────────────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl p-6">
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Tags</h2>
             <span v-if="data.tag_analysis.shared_count" class="text-xs text-gray-500">
@@ -644,7 +702,7 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
         </div>
 
         <!-- ── top performers ─────────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Top Performers</h2>
             <span class="text-xs text-gray-500">{{ data.meta.tier_count }} videos — top {{ data.meta.tier_pct }}%</span>
@@ -659,29 +717,30 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
               <NuxtLink :to="`/video/${v.id}`" class="flex-1 min-w-0 text-sm text-gray-100 hover:text-white hover:underline truncate">
                 {{ v.title }}
               </NuxtLink>
-              <div class="flex gap-5 text-xs text-right shrink-0">
-                <div>
-                  <div class="text-emerald-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div>
-                  <div class="text-gray-500">views</div>
-                </div>
-                <div v-if="v.ctr != null">
-                  <div class="text-emerald-400 font-medium">{{ v.ctr.toFixed(1) }}%</div>
-                  <div class="text-gray-500">CTR</div>
-                </div>
-                <div v-if="v.avg_view_duration != null">
-                  <div class="text-emerald-400 font-medium">{{ fmtDuration(v.avg_view_duration) }}</div>
-                  <div class="text-gray-500">watch</div>
-                </div>
-                <div class="text-gray-500 text-right">
-                  <div>{{ fmtDate(v.published_at) }}</div>
-                </div>
+              <div class="flex text-xs text-right shrink-0">
+                <div class="w-20"><div class="text-emerald-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views</div></div>
+
+                <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
+                <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
+                <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
+                <div class="w-20"><div class="text-emerald-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">total</div></div>
+                <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
+            </div>
+          </div>
+          <!-- totals footer -->
+          <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
+            <span class="font-medium text-gray-300">Group totals</span>
+            <div class="flex items-center gap-6">
+              <span>Views/day: <span class="text-emerald-400 font-medium">{{ fmtNum(Math.round(groupTotals(data.top_videos).vpd)) }}</span></span>
+              <span>Total Views: <span class="text-emerald-400 font-medium">{{ fmtNumFull(groupTotals(data.top_videos).views) }}</span></span>
+              <span v-if="groupTotals(data.top_videos).revenue != null">Total Revenue: <span class="text-emerald-400 font-medium">{{ fmtMoney(groupTotals(data.top_videos).revenue) }}</span></span>
             </div>
           </div>
         </div>
 
         <!-- ── bottom performers ──────────────────────────────────────────── -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
+        <div class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Bottom Performers</h2>
             <span class="text-xs text-gray-500">{{ data.meta.tier_count }} videos — bottom {{ data.meta.tier_pct }}%</span>
@@ -696,23 +755,24 @@ const durationBarWidth = (bucket: string, group: 'top' | 'bottom') => {
               <NuxtLink :to="`/video/${v.id}`" class="flex-1 min-w-0 text-sm text-gray-100 hover:text-white hover:underline truncate">
                 {{ v.title }}
               </NuxtLink>
-              <div class="flex gap-5 text-xs text-right shrink-0">
-                <div>
-                  <div class="text-red-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div>
-                  <div class="text-gray-500">views</div>
-                </div>
-                <div v-if="v.ctr != null">
-                  <div class="text-red-400 font-medium">{{ v.ctr.toFixed(1) }}%</div>
-                  <div class="text-gray-500">CTR</div>
-                </div>
-                <div v-if="v.avg_view_duration != null">
-                  <div class="text-red-400 font-medium">{{ fmtDuration(v.avg_view_duration) }}</div>
-                  <div class="text-gray-500">watch</div>
-                </div>
-                <div class="text-gray-500 text-right">
-                  <div>{{ fmtDate(v.published_at) }}</div>
-                </div>
+              <div class="flex text-xs text-right shrink-0">
+                <div class="w-20"><div class="text-red-400 font-medium">{{ fmtNum(v.views_per_day) }}/day</div><div class="text-gray-500">views</div></div>
+
+                <div class="w-16"><div class="text-red-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
+                <div class="w-16"><div class="text-red-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
+                <div class="w-16"><div class="text-red-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
+                <div class="w-20"><div class="text-red-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">total</div></div>
+                <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
+            </div>
+          </div>
+          <!-- totals footer -->
+          <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
+            <span class="font-medium text-gray-300">Group totals</span>
+            <div class="flex items-center gap-6">
+              <span>Views/day: <span class="text-red-400 font-medium">{{ fmtNum(Math.round(groupTotals(data.bottom_videos).vpd)) }}</span></span>
+              <span>Total Views: <span class="text-red-400 font-medium">{{ fmtNumFull(groupTotals(data.bottom_videos).views) }}</span></span>
+              <span v-if="groupTotals(data.bottom_videos).revenue != null">Total Revenue: <span class="text-red-400 font-medium">{{ fmtMoney(groupTotals(data.bottom_videos).revenue) }}</span></span>
             </div>
           </div>
         </div>

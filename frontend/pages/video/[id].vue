@@ -33,6 +33,10 @@ interface Video {
   average_view_duration_seconds: number | null
   average_view_percentage: number | null
   estimated_minutes_watched: number | null
+  estimated_revenue: number | null
+  estimated_ad_revenue: number | null
+  rpm: number | null
+  cpm: number | null
   stats_history: StatsSnapshot[]
 }
 
@@ -107,6 +111,9 @@ const formatCtr = (ctr: number | null) =>
 const formatPct = (pct: number | null) =>
   pct == null ? '—' : pct.toFixed(1) + '%'
 
+const formatMoney = (n: number | null) =>
+  n == null ? '—' : '$' + n.toFixed(2)
+
 const categoryName = computed(() =>
   video.value?.category_id ? (CATEGORIES[video.value.category_id] ?? `Category ${video.value.category_id}`) : '—'
 )
@@ -121,7 +128,9 @@ const hasAnalytics = computed(() =>
     video.value.click_through_rate != null ||
     video.value.average_view_duration_seconds != null ||
     video.value.impressions != null ||
-    video.value.average_view_percentage != null
+    video.value.average_view_percentage != null ||
+    video.value.rpm != null ||
+    video.value.estimated_revenue != null
   )
 )
 
@@ -277,7 +286,7 @@ const historyIntervalLabel = computed(() => {
       <!-- analytics row (only shown when data exists) -->
       <div v-if="hasAnalytics" class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
         <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-4">Analytics</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
           <div class="bg-white/5 rounded-xl p-4 text-center">
             <p class="text-2xl font-bold">{{ formatCtr(video.click_through_rate) }}</p>
             <p class="text-xs text-gray-400 mt-0.5">Click-Through Rate</p>
@@ -293,6 +302,14 @@ const historyIntervalLabel = computed(() => {
           <div class="bg-white/5 rounded-xl p-4 text-center">
             <p class="text-2xl font-bold">{{ formatPct(video.average_view_percentage) }}</p>
             <p class="text-xs text-gray-400 mt-0.5">Avg View %</p>
+          </div>
+          <div class="bg-white/5 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold">{{ formatMoney(video.rpm) }}</p>
+            <p class="text-xs text-gray-400 mt-0.5">RPM</p>
+          </div>
+          <div class="bg-white/5 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold">{{ formatMoney(video.estimated_revenue) }}</p>
+            <p class="text-xs text-gray-400 mt-0.5">Revenue</p>
           </div>
         </div>
       </div>
@@ -337,7 +354,7 @@ const historyIntervalLabel = computed(() => {
               <span>{{ video.engagement_rate != null ? video.engagement_rate + '%' : '—' }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-400">Est. mins watched</span>
+              <span class="text-gray-400">Mins Watched</span>
               <span>{{ video.estimated_minutes_watched != null ? video.estimated_minutes_watched.toLocaleString() : '—' }}</span>
             </div>
             <div class="flex justify-between items-center">

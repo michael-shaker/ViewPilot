@@ -7,12 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.channels import Channel
 from app.models.stats import VideoAnalytics, VideoStats
 from app.models.users import User
 from app.models.videos import Video
+from app.services import youtube as yt
 from app.utils.dependencies import get_current_user
+from app.utils.security import decrypt_token
 
 router = APIRouter(prefix="/autopsy", tags=["autopsy"])
 
@@ -114,8 +117,8 @@ def _analyze_titles(titles: list[str]) -> dict:
 @router.get("")
 async def get_autopsy(
     channel_id: UUID,
-    window_size: int = Query(default=50, ge=10, le=200),
-    tier_pct: int = Query(default=20, enum=[5, 10, 20, 25]),
+    window_size: int = Query(default=100, ge=10, le=200),
+    tier_pct: int = Query(default=10, enum=[5, 10, 20, 25]),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -126,6 +129,19 @@ async def get_autopsy(
     channel = await db.get(Channel, channel_id)
     if not channel or channel.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="channel not found")
+
+    # fetch 30-day views per video from analytics api — gives current velocity
+    # instead of lifetime average. falls back gracefully if the call fails.
+    access_token = decrypt_token(current_user.access_token, settings.secret_key)
+    refresh_token = (
+        decrypt_token(current_user.refresh_token, settings.secret_key)
+        if current_user.refresh_token else None
+    )
+    recent_views: dict[str, int] = {}
+    try:
+        recent_views = await yt.get_recent_channel_views(access_token, refresh_token, days=30)
+    except Exception as exc:
+        print(f"autopsy: recent views fetch failed, falling back to lifetime avg: {exc}")
 
     # latest stats snapshot per video
     latest_stats_sq = (
@@ -175,7 +191,9 @@ async def get_autopsy(
     enriched = []
     for v, s, a in rows:
         days_live = max((today - v.published_at.date()).days, 1)
-        views_per_day = s.view_count / days_live
+        # use 30-day rolling average if available, fall back to lifetime average
+        recent = recent_views.get(v.youtube_video_id)
+        views_per_day = (recent / 30) if recent is not None else (s.view_count / days_live)
         engagement_rate = (s.like_count / s.view_count * 100) if s.view_count else 0.0
         comment_rate = (s.comment_count / s.view_count * 100) if s.view_count else 0.0
 
@@ -201,6 +219,8 @@ async def get_autopsy(
             "avg_view_pct": a.average_view_percentage if a else None,
             "impressions": a.impressions if a else None,
             "estimated_minutes_watched": a.estimated_minutes_watched if a else None,
+            "rpm": a.rpm if a else None,
+            "estimated_revenue": a.estimated_revenue if a else None,
         })
 
     # exclude shorts — they perform completely differently and would skew all metrics.
@@ -251,6 +271,8 @@ async def get_autopsy(
         "comment_rate": compare("comment_rate"),
         "impressions": compare("impressions"),
         "estimated_minutes_watched": compare("estimated_minutes_watched"),
+        "rpm": compare("rpm"),
+        "estimated_revenue": compare("estimated_revenue"),
         "duration_seconds": compare("duration_seconds"),
         "tag_count": {
             "top": round(top_tag_avg, 1) if top_tag_avg is not None else None,
@@ -389,6 +411,8 @@ async def get_autopsy(
             "engagement_rate": round(v["engagement_rate"], 2),
             "duration_seconds": v["duration_seconds"],
             "is_short": v["is_short"],
+            "rpm": round(v["rpm"], 2) if v["rpm"] is not None else None,
+            "estimated_revenue": round(v["estimated_revenue"], 2) if v["estimated_revenue"] is not None else None,
         }
 
     return {

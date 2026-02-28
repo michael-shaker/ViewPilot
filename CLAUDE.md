@@ -37,6 +37,7 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - **Analytics API:** reports.query (per-video metrics: CTR, avg view duration, impressions, traffic sources)
 - **OAuth scopes:** youtube.readonly, yt-analytics.readonly, userinfo.email, userinfo.profile
 - **Quota:** 10,000 units/day (Data API), 200 requests/day (Analytics API)
+- **Analytics API quota risk:** Each sync uses ~4-5 Analytics API calls. The autopsy page fires 1-2 extra calls on each Compare click (for 30-day recent views). Solo user would need to hit Compare ~90+ times in a single day to approach the 200 request limit — not a real concern in practice, but worth knowing.
 
 ## Development Environment
 - **Python version:** 3.13 (installed via Microsoft Store on Windows)

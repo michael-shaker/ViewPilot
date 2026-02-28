@@ -24,6 +24,8 @@ SORT_COLUMNS = {
     "published_at": Video.published_at,
     "duration": Video.duration_seconds,
     "title": Video.title,
+    "revenue": VideoAnalytics.estimated_revenue,
+    "rpm": VideoAnalytics.rpm,
 }
 
 
@@ -119,6 +121,8 @@ async def list_videos(
                 "impressions": a.impressions if a else None,
                 "average_view_duration_seconds": a.average_view_duration_seconds if a else None,
                 "average_view_percentage": a.average_view_percentage if a else None,
+                "estimated_revenue": a.estimated_revenue if a else None,
+                "rpm": a.rpm if a else None,
             }
             for v, s, a in rows
         ],
@@ -185,6 +189,10 @@ async def get_video(
         "average_view_duration_seconds": analytics.average_view_duration_seconds if analytics else None,
         "average_view_percentage": analytics.average_view_percentage if analytics else None,
         "estimated_minutes_watched": analytics.estimated_minutes_watched if analytics else None,
+        "estimated_revenue": analytics.estimated_revenue if analytics else None,
+        "estimated_ad_revenue": analytics.estimated_ad_revenue if analytics else None,
+        "rpm": analytics.rpm if analytics else None,
+        "cpm": analytics.cpm if analytics else None,
         # full history for the table
         "stats_history": [
             {

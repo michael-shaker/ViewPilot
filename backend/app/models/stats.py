@@ -53,4 +53,9 @@ class VideoAnalytics(Base):
     subscribers_gained: Mapped[int | None] = mapped_column(sa.Integer)
     subscribers_lost: Mapped[int | None] = mapped_column(sa.Integer)
     traffic_source: Mapped[dict | None] = mapped_column(JSONB)
+    # revenue data — requires yt-analytics-monetary.readonly scope
+    estimated_revenue: Mapped[float | None] = mapped_column(sa.Float)
+    estimated_ad_revenue: Mapped[float | None] = mapped_column(sa.Float)
+    rpm: Mapped[float | None] = mapped_column(sa.Float)
+    cpm: Mapped[float | None] = mapped_column(sa.Float)
     fetched_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)

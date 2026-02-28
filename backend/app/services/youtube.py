@@ -199,6 +199,95 @@ async def get_video_daily_history(
     return all_rows
 
 
+async def get_recent_channel_views(
+    access_token: str, refresh_token: str | None, days: int = 30
+) -> dict[str, int]:
+    """get total views per video over the last N days — 1-2 api calls total.
+    used by autopsy to show current view velocity instead of lifetime average."""
+    analytics = _build_analytics_client(access_token, refresh_token)
+    start = (date.today() - timedelta(days=days)).isoformat()
+    today = date.today().isoformat()
+
+    results: dict[str, int] = {}
+    start_index = 1
+
+    while True:
+        response = await _run(
+            analytics.reports().query(
+                ids="channel==MINE",
+                startDate=start,
+                endDate=today,
+                dimensions="video",
+                metrics="views",
+                sort="-views",
+                maxResults=200,
+                startIndex=start_index,
+            ).execute
+        )
+
+        rows = response.get("rows") or []
+        if not rows:
+            break
+
+        headers = [h["name"] for h in response["columnHeaders"]]
+        for row in rows:
+            yt_vid_id = row[0]
+            results[yt_vid_id] = int(dict(zip(headers, row)).get("views", 0))
+
+        row_count = response.get("rowCount", 0)
+        fetched = start_index - 1 + len(rows)
+        if fetched >= row_count:
+            break
+        start_index += 200
+
+    return results
+
+
+async def get_channel_revenue(
+    access_token: str, refresh_token: str | None
+) -> dict[str, dict]:
+    """pull lifetime revenue for every video — requires the monetary analytics scope.
+    only requests estimatedRevenue + estimatedAdRevenue because rpm/cpm are not
+    supported with dimensions=video in the analytics api. rpm is calculated in sync.py
+    from revenue and views."""
+    analytics = _build_analytics_client(access_token, refresh_token)
+    today = date.today().isoformat()
+
+    results: dict[str, dict] = {}
+    start_index = 1
+
+    while True:
+        response = await _run(
+            analytics.reports().query(
+                ids="channel==MINE",
+                startDate="2020-01-01",
+                endDate=today,
+                dimensions="video",
+                metrics="estimatedRevenue,estimatedAdRevenue",
+                sort="-estimatedRevenue",
+                maxResults=200,
+                startIndex=start_index,
+            ).execute
+        )
+
+        rows = response.get("rows") or []
+        if not rows:
+            break
+
+        headers = [h["name"] for h in response["columnHeaders"]]
+        for row in rows:
+            yt_vid_id = row[0]
+            results[yt_vid_id] = dict(zip(headers, row))
+
+        row_count = response.get("rowCount", 0)
+        fetched = start_index - 1 + len(rows)
+        if fetched >= row_count:
+            break
+        start_index += 200
+
+    return results
+
+
 async def ensure_reach_job(access_token: str, refresh_token: str | None) -> str:
     """find an existing reach reporting job or create one if none exists.
     this only needs to happen once ever — after that google keeps generating

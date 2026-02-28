@@ -30,6 +30,8 @@ interface Video {
   impressions: number | null
   average_view_duration_seconds: number | null
   average_view_percentage: number | null
+  estimated_revenue: number | null
+  rpm: number | null
 }
 
 interface VideosResponse {
@@ -140,6 +142,16 @@ const formatCtr = (ctr: number | null) => {
   if (ctr == null) return '—'
   return (ctr * 100).toFixed(1) + '%'
 }
+
+const formatMoney = (n: number | null) => {
+  if (n == null) return '—'
+  return '$' + n.toFixed(2)
+}
+
+const formatRpm = (n: number | null) => {
+  if (n == null) return '—'
+  return '$' + n.toFixed(2)
+}
 </script>
 
 <template>
@@ -160,7 +172,7 @@ const formatCtr = (ctr: number | null) => {
     <main class="max-w-6xl mx-auto px-6 py-8">
 
       <!-- channel stats bar -->
-      <div v-if="channel" class="bg-white/10 ring-1 ring-white/20 rounded-xl p-6 mb-8 flex items-center gap-6">
+      <div v-if="channel" class="bg-white/15 ring-1 ring-white/25 rounded-xl p-6 mb-8 flex items-center gap-6">
         <img v-if="channel.thumbnail_url" :src="channel.thumbnail_url" class="h-14 w-14 rounded-full" />
         <div class="flex-1">
           <h2 class="text-xl font-semibold">{{ channel.title }}</h2>
@@ -209,7 +221,7 @@ const formatCtr = (ctr: number | null) => {
       <div v-else class="text-center text-gray-500 py-20">Loading channel...</div>
 
       <!-- video table -->
-      <div v-if="videos.length" class="bg-white/10 ring-1 ring-white/20 rounded-xl overflow-hidden">
+      <div v-if="videos.length" class="bg-white/15 ring-1 ring-white/25 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
           <thead class="border-b border-gray-700/50 text-gray-400 text-xs uppercase tracking-wider">
             <tr>
@@ -219,6 +231,12 @@ const formatCtr = (ctr: number | null) => {
               </th>
               <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('views')">
                 Views {{ sortIcon('views') }}
+              </th>
+              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('revenue')">
+                Revenue {{ sortIcon('revenue') }}
+              </th>
+              <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('rpm')">
+                RPM {{ sortIcon('rpm') }}
               </th>
               <th class="px-4 py-3 cursor-pointer hover:text-white" @click="setSort('likes')">
                 Likes {{ sortIcon('likes') }}
@@ -238,12 +256,17 @@ const formatCtr = (ctr: number | null) => {
                 </td>
                 <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatDate(v.published_at) }}</td>
                 <td class="px-4 pt-3 pb-1 text-center">{{ formatNum(v.view_count) }}</td>
+                <td class="px-4 pt-3 pb-1 text-center text-gray-400">
+                  <template v-if="v.estimated_revenue != null"><span class="text-green-600">$</span>{{ v.estimated_revenue.toFixed(2) }}</template>
+                  <template v-else>—</template>
+                </td>
+                <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ v.rpm != null ? v.rpm.toFixed(2) : '—' }}</td>
                 <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.like_count) }}</td>
                 <td class="px-4 pt-3 pb-1 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
               </tr>
               <!-- analytics sub-row -->
               <tr class="border-b border-white/5 bg-black/10">
-                <td colspan="5" class="px-4 pb-2.5 pt-0">
+                <td colspan="7" class="px-4 pb-2.5 pt-0">
                   <div class="flex items-center gap-6 text-xs text-gray-500 pl-[76px]">
                     <span>
                       Views per day: <span class="text-gray-400">{{ formatNum(v.views_per_day) }}</span>
