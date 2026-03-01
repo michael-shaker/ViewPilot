@@ -87,18 +87,18 @@ const loadVideos = async () => {
   }
 }
 
-// fires parallel requests to the Return YouTube Dislike API for each video on the page
-const fetchDislikes = (videoList: Video[]) => {
-  videoList.forEach(async v => {
-    try {
-      const res = await $fetch<{ dislikes: number }>(
-        `https://returnyoutubedislikeapi.com/votes?videoId=${v.youtube_video_id}`
-      )
-      dislikes.value[v.youtube_video_id] = res.dislikes
-    } catch {
-      // silently skip — api might not have data for every video
+// one backend call gets all dislike counts for the page — backend caches them in redis for 24h
+const fetchDislikes = async (videoList: Video[]) => {
+  if (!videoList.length) return
+  const ids = videoList.map(v => v.youtube_video_id).join(',')
+  try {
+    const res = await api<Record<string, number | null>>(`/api/v1/videos/dislikes?ids=${ids}`)
+    for (const [ytId, count] of Object.entries(res)) {
+      if (count != null) dislikes.value[ytId] = count
     }
-  })
+  } catch {
+    // silently skip — dislike badge is a nice-to-have
+  }
 }
 
 const sync = async () => {
@@ -189,7 +189,7 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
   <div class="min-h-screen text-white">
 
     <!-- nav — matches autopsy styling -->
-    <header class="border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+    <header class="border-b border-white/10 bg-black/30 backdrop-blur-[2px] px-6 py-4 flex items-center justify-between sticky top-0 z-10">
       <span class="text-lg font-bold tracking-tight">ViewPilot</span>
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-2.5">
@@ -204,7 +204,7 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
     <main class="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
       <!-- channel hero card -->
-      <div v-if="channel" class="relative overflow-hidden rounded-2xl ring-1 ring-white/15">
+      <div v-if="channel" class="relative overflow-hidden rounded-2xl ring-1 ring-white/15 backdrop-blur-[2px]">
         <!-- dark gradient base -->
         <div class="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950"></div>
         <!-- ambient glow blobs -->
@@ -271,7 +271,7 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
       </div>
 
       <!-- video table -->
-      <div v-if="videos.length" class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
+      <div v-if="videos.length" class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden backdrop-blur-[2px]">
 
         <!-- table card header -->
         <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
@@ -333,7 +333,7 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
                     <div class="flex flex-col gap-1 min-w-0">
                       <NuxtLink
                         :to="`/video/${v.id}`"
-                        class="text-sm text-gray-200 hover:text-white transition line-clamp-2 leading-snug"
+                        class="text-[15px] text-gray-200 hover:text-white transition line-clamp-2 leading-snug"
                       >{{ v.title }}</NuxtLink>
                       <span v-if="i === 0 && sortBy === 'views'" class="text-[10px] font-semibold text-amber-400/80 uppercase tracking-widest">Top video</span>
                     </div>

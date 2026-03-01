@@ -1,8 +1,11 @@
-from datetime import date
+import asyncio
+import json
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import asc, desc, func, select
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import asc, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -10,7 +13,7 @@ from app.database import get_db
 from app.models.channels import Channel
 from app.models.stats import VideoAnalytics, VideoStats
 from app.models.users import User
-from app.models.videos import Video
+from app.models.videos import Video, VideoComment
 from app.services import youtube as yt
 from app.utils.dependencies import get_current_user
 from app.utils.security import decrypt_token
@@ -129,6 +132,49 @@ async def list_videos(
     }
 
 
+@router.get("/dislikes")
+async def get_video_dislikes(
+    request: Request,
+    ids: str = Query(..., description="comma-separated youtube video ids"),
+    current_user: User = Depends(get_current_user),
+):
+    """return dislike counts for a list of youtube video ids.
+    results are cached in redis for 24 hours to avoid hammering the ryd api on every page load."""
+    youtube_ids = [i.strip() for i in ids.split(",") if i.strip()][:100]
+    redis = request.app.state.redis
+
+    results: dict[str, int | None] = {}
+    missing: list[str] = []
+
+    # check redis for each id first
+    for yt_id in youtube_ids:
+        cached = await redis.get(f"dislikes:{yt_id}")
+        if cached is not None:
+            results[yt_id] = int(cached)
+        else:
+            missing.append(yt_id)
+
+    # fetch any uncached ids from the ryd api in parallel
+    if missing:
+        async with httpx.AsyncClient(timeout=8) as client:
+            responses = await asyncio.gather(
+                *[client.get(f"https://returnyoutubedislikeapi.com/votes?videoId={vid}") for vid in missing],
+                return_exceptions=True,
+            )
+            for yt_id, resp in zip(missing, responses):
+                if isinstance(resp, Exception):
+                    results[yt_id] = None
+                    continue
+                try:
+                    count = int(resp.json().get("dislikes", 0))
+                    results[yt_id] = count
+                    await redis.set(f"dislikes:{yt_id}", str(count), ex=86400)  # cache 24h
+                except Exception:
+                    results[yt_id] = None
+
+    return results
+
+
 @router.get("/{video_id}")
 async def get_video(
     video_id: UUID,
@@ -208,12 +254,14 @@ async def get_video(
 
 @router.get("/{video_id}/history")
 async def get_video_history(
+    request: Request,
     video_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """fetch real daily view/like/comment counts from the youtube analytics api
-    for a single video, from its publish date up to today."""
+    for a single video, from its publish date up to today.
+    cached in redis for 24 hours — analytics data only updates once a day anyway."""
     video = await db.get(Video, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="video not found")
@@ -221,6 +269,13 @@ async def get_video_history(
     channel = await db.get(Channel, video.channel_id)
     if not channel or channel.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="video not found")
+
+    # return cached result if we have one — avoids hitting youtube analytics api every page load
+    redis = request.app.state.redis
+    cache_key = f"history:{video_id}"
+    cached = await redis.get(cache_key)
+    if cached:
+        return {"daily": json.loads(cached)}
 
     access_token = decrypt_token(current_user.access_token, settings.secret_key)
     refresh_token = (
@@ -238,4 +293,119 @@ async def get_video_history(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"analytics api error: {exc}")
 
+    # cache for 24 hours — the analytics api only updates once a day so this is always fresh enough
+    await redis.set(cache_key, json.dumps(daily), ex=86400)
+
     return {"daily": daily}
+
+
+@router.get("/{video_id}/comments")
+async def get_video_comments(
+    video_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """return the top 10 comments + all replies for a video.
+    results are cached in the db for 6 hours to avoid burning api quota."""
+    video = await db.get(Video, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="video not found")
+
+    channel = await db.get(Channel, video.channel_id)
+    if not channel or channel.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="video not found")
+
+    # check for cached comments less than 6 hours old
+    fresh_cutoff = datetime.now(UTC) - timedelta(hours=6)
+    cached_result = await db.execute(
+        select(VideoComment)
+        .where(VideoComment.video_id == video_id)
+        .where(VideoComment.fetched_at > fresh_cutoff)
+        .order_by(VideoComment.is_reply, VideoComment.like_count.desc())
+    )
+    cached = cached_result.scalars().all()
+
+    if cached:
+        return _format_comments(cached)
+
+    # cache is stale or empty — fetch fresh from youtube api
+    access_token = decrypt_token(current_user.access_token, settings.secret_key)
+    refresh_token = (
+        decrypt_token(current_user.refresh_token, settings.secret_key)
+        if current_user.refresh_token
+        else None
+    )
+
+    raw = await yt.get_video_comments(access_token, refresh_token, video.youtube_video_id)
+    print(f"[comments] fetched {len(raw)} comments for {video.youtube_video_id}")
+
+    # wipe old cached rows and store new ones
+    await db.execute(delete(VideoComment).where(VideoComment.video_id == video_id))
+
+    now = datetime.now(UTC)
+    for c in raw:
+        db.add(VideoComment(
+            video_id=video_id,
+            youtube_comment_id=c["youtube_comment_id"],
+            parent_youtube_id=c["parent_youtube_id"],
+            author_name=c["author_name"],
+            author_image_url=c["author_image_url"],
+            author_channel_url=c["author_channel_url"],
+            author_channel_id=c["author_channel_id"],
+            text=c["text"],
+            like_count=c["like_count"],
+            reply_count=c["reply_count"],
+            is_reply=c["is_reply"],
+            published_at=_parse_yt_dt(c["published_at"]),
+            updated_at_youtube=_parse_yt_dt(c["updated_at_youtube"]),
+            fetched_at=now,
+        ))
+    await db.commit()
+
+    # re-query from db to get ids etc
+    result = await db.execute(
+        select(VideoComment)
+        .where(VideoComment.video_id == video_id)
+        .order_by(VideoComment.is_reply, VideoComment.like_count.desc())
+    )
+    return _format_comments(result.scalars().all())
+
+
+def _parse_yt_dt(s: str | None) -> datetime | None:
+    """parse youtube's iso 8601 timestamp strings into aware datetimes."""
+    if not s:
+        return None
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _format_comments(rows: list[VideoComment]) -> dict:
+    """organize flat db rows into top-level comments each with their replies nested."""
+    top_level = {}
+    replies: dict[str, list] = {}
+
+    for c in rows:
+        obj = {
+            "id": str(c.id),
+            "youtube_comment_id": c.youtube_comment_id,
+            "parent_youtube_id": c.parent_youtube_id,
+            "author_name": c.author_name,
+            "author_image_url": c.author_image_url,
+            "author_channel_url": c.author_channel_url,
+            "text": c.text,
+            "like_count": c.like_count,
+            "reply_count": c.reply_count,
+            "is_reply": c.is_reply,
+            "published_at": c.published_at,
+        }
+        if not c.is_reply:
+            top_level[c.youtube_comment_id] = {**obj, "replies": []}
+        else:
+            parent = c.parent_youtube_id or ""
+            replies.setdefault(parent, []).append(obj)
+
+    # attach replies to their parent
+    for parent_id, reply_list in replies.items():
+        if parent_id in top_level:
+            top_level[parent_id]["replies"] = sorted(reply_list, key=lambda r: r["like_count"], reverse=True)
+
+    return {"comments": list(top_level.values())}

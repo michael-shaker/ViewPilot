@@ -288,6 +288,85 @@ async def get_channel_revenue(
     return results
 
 
+async def get_video_comments(
+    access_token: str, refresh_token: str | None, youtube_video_id: str
+) -> list[dict]:
+    """fetch the top 10 most-liked comments for a video plus all their replies.
+    returns a flat list — top-level comments and replies mixed, distinguished by is_reply."""
+    youtube = _build_client(access_token, refresh_token)
+
+    def parse_comment_snippet(item: dict, is_reply: bool, parent_id: str | None) -> dict:
+        s = item["snippet"]
+        return {
+            "youtube_comment_id": item["id"],
+            "parent_youtube_id": parent_id,
+            "author_name": s.get("authorDisplayName", ""),
+            "author_image_url": s.get("authorProfileImageUrl"),
+            "author_channel_url": s.get("authorChannelUrl"),
+            "author_channel_id": (s.get("authorChannelId") or {}).get("value"),
+            "text": s.get("textDisplay", ""),
+            "like_count": s.get("likeCount", 0),
+            "reply_count": 0,
+            "is_reply": is_reply,
+            "published_at": s.get("publishedAt"),
+            "updated_at_youtube": s.get("updatedAt"),
+        }
+
+    # fetch top 10 comment threads sorted by relevance (youtube's own top-comments ranking)
+    try:
+        threads_resp = await _run(
+            youtube.commentThreads().list(
+                part="snippet,replies",
+                videoId=youtube_video_id,
+                maxResults=10,
+                order="relevance",
+                textFormat="plainText",
+            ).execute
+        )
+    except Exception as e:
+        print(f"[comments] commentThreads.list failed for {youtube_video_id}: {e}")
+        return []  # comments may be disabled on the video
+
+    all_comments: list[dict] = []
+
+    for thread in threads_resp.get("items", []):
+        top_comment_item = thread["snippet"]["topLevelComment"]
+        top_comment = parse_comment_snippet(top_comment_item, is_reply=False, parent_id=None)
+        top_comment["reply_count"] = thread["snippet"].get("totalReplyCount", 0)
+        all_comments.append(top_comment)
+
+        thread_id = top_comment_item["id"]
+        total_replies = thread["snippet"].get("totalReplyCount", 0)
+        bundled = thread.get("replies", {}).get("comments", [])
+
+        if total_replies == 0:
+            continue
+
+        if total_replies <= len(bundled):
+            # all replies already bundled in the thread response — no extra api call needed
+            for reply in bundled:
+                all_comments.append(parse_comment_snippet(reply, is_reply=True, parent_id=thread_id))
+        else:
+            # more replies exist than the bundled 5 — fetch them all with a separate call
+            try:
+                replies_resp = await _run(
+                    youtube.comments().list(
+                        part="snippet",
+                        parentId=thread_id,
+                        maxResults=100,
+                        textFormat="plainText",
+                    ).execute
+                )
+                for reply in replies_resp.get("items", []):
+                    all_comments.append(parse_comment_snippet(reply, is_reply=True, parent_id=thread_id))
+            except Exception:
+                # fall back to the bundled ones if the extra call fails
+                for reply in bundled:
+                    all_comments.append(parse_comment_snippet(reply, is_reply=True, parent_id=thread_id))
+
+    return all_comments
+
+
 async def ensure_reach_job(access_token: str, refresh_token: str | None) -> str:
     """find an existing reach reporting job or create one if none exists.
     this only needs to happen once ever — after that google keeps generating

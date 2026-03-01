@@ -16,11 +16,14 @@ from app.jobs.scheduler import start_scheduler, stop_scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # runs on startup — kick off the background sync job
+    # connect redis once at startup and store it on app.state so any route can use it
+    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    app.state.redis = redis
     start_scheduler()
     yield
-    # runs on shutdown — stop it cleanly
+    # clean up on shutdown
     stop_scheduler()
+    await redis.aclose()
 
 
 app = FastAPI(
@@ -54,7 +57,7 @@ app.include_router(graphql_router, prefix="/graphql")
 
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
     checks = {}
 
     # check postgres — just run a trivial query
@@ -65,11 +68,9 @@ async def health():
     except Exception as e:
         checks["db"] = f"error: {e}"
 
-    # check redis — ping it
+    # check redis — reuse the shared connection from app.state
     try:
-        r = aioredis.from_url(settings.redis_url)
-        await r.ping()
-        await r.aclose()
+        await request.app.state.redis.ping()
         checks["redis"] = "ok"
     except Exception as e:
         checks["redis"] = f"error: {e}"

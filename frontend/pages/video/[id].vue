@@ -55,11 +55,35 @@ interface DailyRow {
   comments: number
 }
 
+interface Comment {
+  id: string
+  youtube_comment_id: string
+  parent_youtube_id: string | null
+  author_name: string
+  author_image_url: string | null
+  author_channel_url: string | null
+  text: string
+  like_count: number
+  reply_count: number
+  is_reply: boolean
+  published_at: string | null
+  replies: Comment[]
+}
+
 const video = ref<Video | null>(null)
 const loadError = ref<string | null>(null)
 const descExpanded = ref(false)
 const dailyHistory = ref<DailyRow[]>([])
 const historyLoading = ref(true)
+const dislikeCount = ref<number | null>(null)  // null = still loading
+const comments = ref<Comment[]>([])
+const commentsLoading = ref(true)
+
+// tracks which avatar images failed to load so we can show the letter fallback instead
+const failedAvatars = ref(new Set<string>())
+const onAvatarError = (id: string) => {
+  failedAvatars.value = new Set([...failedAvatars.value, id])
+}
 
 onMounted(async () => {
   try {
@@ -69,19 +93,43 @@ onMounted(async () => {
     return
   }
 
-  // fetch real daily data from analytics api separately so the page loads fast
-  // and the history table fills in after
-  try {
-    const res = await api<{ daily: { day: string, views: number, likes: number, comments: number }[] }>(
+  // all three secondary fetches run in parallel after the video loads
+  Promise.all([
+    // dislike count via backend — cached in redis for 24h so it's fast after first load
+    api<Record<string, number | null>>(`/api/v1/videos/dislikes?ids=${video.value.youtube_video_id}`)
+      .then(res => { dislikeCount.value = res[video.value!.youtube_video_id] ?? -1 })
+      .catch(() => { dislikeCount.value = -1 }),
+
+    // daily analytics history
+    api<{ daily: { day: string, views: number, likes: number, comments: number }[] }>(
       `/api/v1/videos/${route.params.id}/history`
-    )
-    dailyHistory.value = res.daily
-  } catch {
-    // silently fall back to empty — table will just show nothing
-  } finally {
-    historyLoading.value = false
-  }
+    ).then(res => { dailyHistory.value = res.daily })
+      .catch(() => {})
+      .finally(() => { historyLoading.value = false }),
+
+    // top comments with replies
+    api<{ comments: Comment[] }>(`/api/v1/videos/${route.params.id}/comments`)
+      .then(res => { comments.value = res.comments })
+      .catch(() => {})
+      .finally(() => { commentsLoading.value = false }),
+  ])
 })
+
+// e.g. "3 days ago", "2 months ago"
+const timeAgo = (iso: string | null): string => {
+  if (!iso) return ''
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins  = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days  = Math.floor(diff / 86400000)
+  const months = Math.floor(days / 30)
+  const years  = Math.floor(days / 365)
+  if (years  > 0) return `${years} year${years  > 1 ? 's' : ''} ago`
+  if (months > 0) return `${months} month${months > 1 ? 's' : ''} ago`
+  if (days   > 0) return `${days} day${days   > 1 ? 's' : ''} ago`
+  if (hours  > 0) return `${hours} hour${hours  > 1 ? 's' : ''} ago`
+  return `${mins} minute${mins > 1 ? 's' : ''} ago`
+}
 
 const formatNum = (n: number | null) => {
   if (n == null) return '—'
@@ -90,8 +138,12 @@ const formatNum = (n: number | null) => {
   return n.toLocaleString()
 }
 
-const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+const formatDate = (iso: string) => {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  return `${date} at ${time}`
+}
 
 const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -113,6 +165,15 @@ const formatPct = (pct: number | null) =>
 
 const formatMoney = (n: number | null) =>
   n == null ? '—' : '$' + n.toFixed(2)
+
+// like % = likes / (likes + dislikes) from the RYD API
+const likePercent = computed(() => {
+  if (!video.value || dislikeCount.value === null) return null  // loading
+  if (dislikeCount.value < 0) return null  // fetch failed
+  const total = video.value.like_count + dislikeCount.value
+  if (total === 0) return null
+  return (video.value.like_count / total * 100).toFixed(1) + '%'
+})
 
 const categoryName = computed(() =>
   video.value?.category_id ? (CATEGORIES[video.value.category_id] ?? `Category ${video.value.category_id}`) : '—'
@@ -205,111 +266,114 @@ const historyIntervalLabel = computed(() => {
   const showing = filteredHistory.value.length
   return `${showing} days across ${total} total days of data`
 })
+
+const historyMaxViews = computed(() =>
+  Math.max(...filteredHistory.value.map(r => r.view_count), 1)
+)
 </script>
 
 <template>
   <div class="min-h-screen text-white">
 
     <!-- nav -->
-    <header class="border-b border-white/10 px-6 py-4 flex items-center gap-4">
-      <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm flex items-center gap-1">
-        ← Dashboard
-      </NuxtLink>
-      <span class="text-gray-600">|</span>
+    <header class="sticky top-0 z-10 border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center gap-3">
+      <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm">← Dashboard</NuxtLink>
+      <span class="text-gray-700 text-xs">|</span>
       <span class="text-sm font-bold tracking-tight">ViewPilot</span>
     </header>
 
     <main v-if="video" class="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
       <!-- hero card -->
-      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
-        <div class="flex flex-col md:flex-row gap-0">
+      <div class="relative overflow-hidden rounded-2xl ring-1 ring-white/15 backdrop-blur-[2px]">
+        <!-- gradient bg -->
+        <div class="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950"></div>
+        <!-- glow blobs -->
+        <div class="absolute -top-16 -right-8 w-72 h-72 rounded-full bg-indigo-600/15 blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-8 left-1/3 w-80 h-32 rounded-full bg-purple-800/15 blur-2xl pointer-events-none"></div>
 
-          <!-- youtube embed -->
-          <div class="md:w-[480px] shrink-0 aspect-video bg-black">
+        <div class="relative flex flex-col md:flex-row md:h-[270px]">
+          <!-- youtube embed — fixed row height means this fills top to bottom with no bars -->
+          <div class="relative md:w-[480px] shrink-0 bg-black">
             <iframe
               :src="`https://www.youtube.com/embed/${video.youtube_video_id}`"
-              class="w-full h-full"
+              class="absolute inset-0 w-full h-full"
               frameborder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowfullscreen
             />
           </div>
 
-          <!-- title + meta -->
-          <div class="flex-1 p-6 flex flex-col justify-between">
+          <!-- title + stats -->
+          <div class="flex-1 p-4 flex flex-col justify-between min-w-0">
             <div>
-              <div class="flex items-start gap-2 mb-3">
-                <span v-if="video.is_short" class="shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 ring-1 ring-red-500/30">#Short</span>
-                <h1 class="text-xl font-bold leading-snug">{{ video.title }}</h1>
-              </div>
-              <div class="flex flex-wrap gap-3 text-sm text-gray-400 mb-6">
-                <span>Published {{ formatDate(video.published_at) }}</span>
-                <span class="text-gray-600">•</span>
-                <span>{{ formatDuration(video.duration_seconds) }}</span>
-                <span v-if="video.default_language" class="text-gray-600">•</span>
-                <span v-if="video.default_language" class="uppercase text-xs tracking-wider">{{ video.default_language }}</span>
-              </div>
+              <span v-if="video.is_short" class="inline-block mb-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 ring-1 ring-red-500/30">#Short</span>
+              <h1 class="text-lg font-bold leading-snug">{{ video.title }}</h1>
+              <p class="text-xs text-gray-500 mt-2 uppercase tracking-widest">
+                {{ formatDate(video.published_at) }}
+              </p>
             </div>
 
-            <!-- main stat pills -->
-            <div class="grid grid-cols-2 gap-3 mb-6">
-              <div class="bg-white/5 rounded-xl p-4 text-center">
-                <p class="text-2xl font-bold">{{ formatNum(video.view_count) }}</p>
-                <p class="text-xs text-gray-400 mt-0.5">Total Views</p>
+            <!-- colored stat cards -->
+            <div class="grid grid-cols-2 gap-2">
+              <div class="bg-blue-500/10 ring-1 ring-blue-500/20 rounded-xl p-2">
+                <p class="text-xl font-bold text-blue-300">{{ formatNum(video.view_count) }}</p>
+                <p class="text-[10px] text-blue-400/60 mt-0.5 uppercase tracking-wider">Total Views</p>
               </div>
-              <div class="bg-white/5 rounded-xl p-4 text-center">
-                <p class="text-2xl font-bold">{{ formatNum(video.views_per_day) }}</p>
-                <p class="text-xs text-gray-400 mt-0.5">Views per Day</p>
+              <div class="bg-indigo-500/10 ring-1 ring-indigo-500/20 rounded-xl p-2">
+                <p class="text-xl font-bold text-indigo-300">{{ formatNum(video.views_per_day) }}</p>
+                <p class="text-[10px] text-indigo-400/60 mt-0.5 uppercase tracking-wider">Views / Day</p>
               </div>
-              <div class="bg-white/5 rounded-xl p-4 text-center">
-                <p class="text-2xl font-bold">{{ formatNum(video.like_count) }}</p>
-                <p class="text-xs text-gray-400 mt-0.5">Likes</p>
+              <div class="bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded-xl p-2">
+                <div class="flex items-baseline gap-1.5 flex-wrap">
+                  <p class="text-xl font-bold text-emerald-300">{{ formatNum(video.like_count) }}</p>
+                  <span v-if="likePercent" class="text-[10px] font-medium text-emerald-400 bg-emerald-500/15 ring-1 ring-emerald-500/25 rounded px-1 py-0.5">{{ likePercent }}</span>
+                  <span v-else-if="dislikeCount === null" class="text-[10px] text-gray-600">…</span>
+                </div>
+                <p class="text-[10px] text-emerald-400/60 mt-0.5 uppercase tracking-wider">Likes</p>
               </div>
-              <div class="bg-white/5 rounded-xl p-4 text-center">
-                <p class="text-2xl font-bold">{{ formatNum(video.comment_count) }}</p>
-                <p class="text-xs text-gray-400 mt-0.5">Comments</p>
+              <div class="bg-purple-500/10 ring-1 ring-purple-500/20 rounded-xl p-2">
+                <p class="text-xl font-bold text-purple-300">{{ formatNum(video.comment_count) }}</p>
+                <p class="text-[10px] text-purple-400/60 mt-0.5 uppercase tracking-wider">Comments</p>
               </div>
             </div>
 
             <a
               :href="`https://www.youtube.com/watch?v=${video.youtube_video_id}`"
               target="_blank"
-              class="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-500 transition px-4 py-2 text-sm font-medium w-fit"
-            >
-              ▶ Open on YouTube
-            </a>
+              class="block w-1/4 text-center border border-red-500/40 bg-red-500/15 hover:bg-red-500/25 hover:border-red-500/60 active:scale-95 transition px-4 py-2 rounded-xl text-xs font-semibold text-red-300 hover:text-red-200"
+            >Open on YouTube</a>
           </div>
         </div>
       </div>
 
       <!-- analytics row (only shown when data exists) -->
-      <div v-if="hasAnalytics" class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+      <div v-if="hasAnalytics" class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6">
         <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-4">Analytics</h2>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-          <div class="bg-white/5 rounded-xl p-4 text-center">
-            <p class="text-2xl font-bold">{{ formatCtr(video.click_through_rate) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Click-Through Rate</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div class="bg-amber-500/10 ring-1 ring-amber-500/20 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-amber-300">{{ formatCtr(video.click_through_rate) }}</p>
+            <p class="text-[11px] text-amber-400/60 mt-1 uppercase tracking-wider">Click-Through Rate</p>
           </div>
-          <div class="bg-white/5 rounded-xl p-4 text-center">
-            <p class="text-2xl font-bold">{{ formatDuration(video.average_view_duration_seconds) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Avg Watch Time</p>
+          <div class="bg-purple-500/10 ring-1 ring-purple-500/20 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-purple-300">{{ formatDuration(video.average_view_duration_seconds) }}</p>
+            <p class="text-[11px] text-purple-400/60 mt-1 uppercase tracking-wider">Avg Watch Time</p>
           </div>
-          <div class="bg-white/5 rounded-xl p-4 text-center">
-            <p class="text-2xl font-bold">{{ formatNum(video.impressions) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Impressions</p>
+          <div class="bg-indigo-500/10 ring-1 ring-indigo-500/20 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-indigo-300">{{ formatNum(video.impressions) }}</p>
+            <p class="text-[11px] text-indigo-400/60 mt-1 uppercase tracking-wider">Impressions</p>
           </div>
-          <div class="bg-white/5 rounded-xl p-4 text-center">
-            <p class="text-2xl font-bold">{{ formatPct(video.average_view_percentage) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Avg View %</p>
+          <div class="bg-cyan-500/10 ring-1 ring-cyan-500/20 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-cyan-300">{{ formatPct(video.average_view_percentage) }}</p>
+            <p class="text-[11px] text-cyan-400/60 mt-1 uppercase tracking-wider">Avg View %</p>
           </div>
-          <div class="bg-white/5 rounded-xl p-4 text-center">
-            <p class="text-2xl font-bold">{{ formatMoney(video.rpm) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">RPM</p>
+          <div class="bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-emerald-300">{{ formatMoney(video.rpm) }}</p>
+            <p class="text-[11px] text-emerald-400/60 mt-1 uppercase tracking-wider">RPM</p>
           </div>
-          <div class="bg-white/5 rounded-xl p-4 text-center">
-            <p class="text-2xl font-bold">{{ formatMoney(video.estimated_revenue) }}</p>
-            <p class="text-xs text-gray-400 mt-0.5">Revenue</p>
+          <div class="bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-emerald-300">{{ formatMoney(video.estimated_revenue) }}</p>
+            <p class="text-[11px] text-emerald-400/60 mt-1 uppercase tracking-wider">Revenue</p>
           </div>
         </div>
       </div>
@@ -318,7 +382,7 @@ const historyIntervalLabel = computed(() => {
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 
         <!-- description -->
-        <div class="md:col-span-2 bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+        <div class="md:col-span-2 bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6">
           <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-3">Description</h2>
           <p v-if="video.description" class="text-sm text-gray-300 leading-relaxed whitespace-pre-line">
             {{ descExpanded ? video.description : shortDescription }}
@@ -334,20 +398,12 @@ const historyIntervalLabel = computed(() => {
         </div>
 
         <!-- metadata -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6 space-y-4">
+        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6 space-y-4">
           <h2 class="text-xs uppercase tracking-widest text-gray-400">Details</h2>
           <div class="space-y-3 text-sm">
             <div class="flex justify-between">
-              <span class="text-gray-400">Category</span>
-              <span class="text-right">{{ categoryName }}</span>
-            </div>
-            <div class="flex justify-between">
               <span class="text-gray-400">Duration</span>
               <span>{{ formatDuration(video.duration_seconds) }}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-400">Type</span>
-              <span>{{ video.is_short ? 'Short' : 'Regular video' }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-400">Engagement</span>
@@ -366,7 +422,7 @@ const historyIntervalLabel = computed(() => {
       </div>
 
       <!-- tags -->
-      <div v-if="video.tags.length" class="bg-white/10 ring-1 ring-white/20 rounded-2xl p-6">
+      <div v-if="video.tags.length" class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6">
         <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-4">Tags</h2>
         <div class="flex flex-wrap gap-2">
           <span
@@ -380,7 +436,7 @@ const historyIntervalLabel = computed(() => {
       </div>
 
       <!-- stats history -->
-      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl overflow-hidden">
+      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] overflow-hidden">
         <div class="px-6 py-4 border-b border-white/10 flex items-baseline justify-between">
           <h2 class="text-xs uppercase tracking-widest text-gray-400">Stats History</h2>
           <span class="text-xs text-gray-500">{{ historyIntervalLabel }}</span>
@@ -409,12 +465,113 @@ const historyIntervalLabel = computed(() => {
           <tbody class="divide-y divide-white/5">
             <tr v-for="(s, i) in filteredHistory" :key="i" class="hover:bg-white/5 transition">
               <td class="px-6 py-3 text-gray-400 text-xs">{{ s.label }}</td>
-              <td class="px-6 py-3 text-right">{{ formatNum(s.view_count) }}</td>
+              <td class="px-6 py-3 text-right">
+                <div class="flex flex-col items-end gap-1">
+                  <span>{{ formatNum(s.view_count) }}</span>
+                  <div class="w-20 h-0.5 rounded-full bg-white/5 overflow-hidden">
+                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400"
+                      :style="{ width: (s.view_count / historyMaxViews * 100) + '%' }"></div>
+                  </div>
+                </div>
+              </td>
               <td class="px-6 py-3 text-right text-gray-400">{{ formatNum(s.like_count) }}</td>
               <td class="px-6 py-3 text-right text-gray-400">{{ formatNum(s.comment_count) }}</td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- comments section -->
+      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+        <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+          <h2 class="text-xs uppercase tracking-widest text-gray-400">Top Comments</h2>
+          <span class="text-xs text-gray-600">{{ commentsLoading ? '…' : comments.length + ' threads' }}</span>
+        </div>
+
+        <!-- loading -->
+        <div v-if="commentsLoading" class="px-6 py-10 text-center text-sm text-gray-500">
+          Fetching comments…
+        </div>
+
+        <!-- no comments -->
+        <div v-else-if="!comments.length" class="px-6 py-10 text-center text-sm text-gray-500">
+          No comments found — they may be disabled on this video.
+        </div>
+
+        <!-- comment list -->
+        <div v-else class="divide-y divide-white/5">
+          <div v-for="comment in comments" :key="comment.youtube_comment_id" class="px-6 py-5">
+
+            <!-- top-level comment -->
+            <div class="flex gap-3">
+              <!-- avatar — falls back to a colored letter if the image is missing or fails -->
+              <a :href="comment.author_channel_url || '#'" target="_blank" class="shrink-0">
+                <img v-if="comment.author_image_url && !failedAvatars.has(comment.youtube_comment_id)"
+                  :src="comment.author_image_url"
+                  @error="onAvatarError(comment.youtube_comment_id)"
+                  class="h-9 w-9 rounded-full ring-1 ring-white/10 object-cover"
+                />
+                <div v-else class="h-9 w-9 rounded-full bg-indigo-600/80 flex items-center justify-center text-white text-sm font-semibold select-none">
+                  {{ (comment.author_name?.[0] || '?').toUpperCase() }}
+                </div>
+              </a>
+
+              <div class="flex-1 min-w-0">
+                <!-- author + time -->
+                <div class="flex items-baseline gap-2 mb-1">
+                  <a :href="comment.author_channel_url || '#'" target="_blank"
+                    class="text-sm font-semibold text-gray-200 hover:text-white transition truncate">
+                    {{ comment.author_name }}
+                  </a>
+                  <span class="text-[11px] text-gray-600 shrink-0">{{ timeAgo(comment.published_at) }}</span>
+                </div>
+
+                <!-- text -->
+                <p class="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{{ comment.text }}</p>
+
+                <!-- likes + reply count -->
+                <div class="flex items-center gap-4 mt-2">
+                  <span class="text-xs text-gray-500 flex items-center gap-1">
+                    <span class="text-gray-400">👍</span> {{ formatNum(comment.like_count) }}
+                  </span>
+                  <span v-if="comment.reply_count > 0" class="text-xs text-gray-600">
+                    {{ comment.reply_count }} {{ comment.reply_count === 1 ? 'reply' : 'replies' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- replies -->
+            <div v-if="comment.replies?.length" class="mt-4 ml-12 space-y-4">
+              <div v-for="reply in comment.replies" :key="reply.youtube_comment_id" class="flex gap-3">
+                <a :href="reply.author_channel_url || '#'" target="_blank" class="shrink-0">
+                  <img v-if="reply.author_image_url && !failedAvatars.has(reply.youtube_comment_id)"
+                    :src="reply.author_image_url"
+                    @error="onAvatarError(reply.youtube_comment_id)"
+                    class="h-7 w-7 rounded-full ring-1 ring-white/10 object-cover"
+                  />
+                  <div v-else class="h-7 w-7 rounded-full bg-indigo-600/80 flex items-center justify-center text-white text-xs font-semibold select-none">
+                    {{ (reply.author_name?.[0] || '?').toUpperCase() }}
+                  </div>
+                </a>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline gap-2 mb-1">
+                    <a :href="reply.author_channel_url || '#'" target="_blank"
+                      class="text-xs font-semibold text-gray-300 hover:text-white transition truncate">
+                      {{ reply.author_name }}
+                    </a>
+                    <span class="text-[10px] text-gray-600 shrink-0">{{ timeAgo(reply.published_at) }}</span>
+                  </div>
+                  <p class="text-xs text-gray-400 leading-relaxed whitespace-pre-line">{{ reply.text }}</p>
+                  <span class="text-[11px] text-gray-600 mt-1 flex items-center gap-1">
+                    <span>👍</span> {{ formatNum(reply.like_count) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
       </div>
 
     </main>
