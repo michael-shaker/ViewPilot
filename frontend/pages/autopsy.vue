@@ -630,7 +630,7 @@ const mergedDurationBuckets = computed(() => {
         <div class="grid gap-4" :style="`grid-template-columns: repeat(${heroMetrics.length}, minmax(0, 1fr))`">
           <div
             v-for="m in heroMetrics" :key="m.label"
-            class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] p-5"
+            class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] p-5"
           >
             <div class="text-xs uppercase tracking-widest text-gray-400 mb-4 text-center">{{ m.label }}</div>
             <div class="flex justify-around items-end mb-4">
@@ -654,7 +654,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── all metrics table ─────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">All Metrics</h2>
           </div>
@@ -717,7 +717,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── performance timeline ───────────────────────────────────────── -->
-        <div v-if="timelineBuckets.length" class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] p-6">
+        <div v-if="timelineBuckets.length" class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] p-6">
           <div class="flex items-center justify-between mb-5">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Performance Over Time</h2>
             <div class="flex items-center gap-2 text-xs text-gray-500">
@@ -783,7 +783,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── title DNA ─────────────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] p-6">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] p-6">
           <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-6">Title DNA</h2>
 
           <!-- length + word count -->
@@ -880,7 +880,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── publishing schedule ────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] p-6">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] p-6">
           <div class="flex items-start justify-between mb-6">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Publishing Schedule</h2>
             <div class="flex gap-4 text-xs">
@@ -928,7 +928,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── duration sweet spot ────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] p-6">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] p-6">
           <div class="flex items-start justify-between mb-6">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Duration Sweet Spot</h2>
             <span v-if="data.duration_analysis.best_bucket" class="text-xs text-emerald-400">
@@ -991,7 +991,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── tags ──────────────────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] px-6 py-4">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] px-6 py-4">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Tags</h2>
             <span v-if="data.tag_analysis.shared_count" class="text-xs text-gray-500">
@@ -1048,7 +1048,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── top performers ─────────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Top Performers</h2>
             <span class="text-xs text-gray-500">{{ data.meta.tier_count }} videos — top {{ data.meta.tier_pct }}%</span>
@@ -1085,7 +1085,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── average performers ────────────────────────────────────────── -->
-        <div v-if="data.avg_videos.length" class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+        <div v-if="data.avg_videos.length" class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Average Performers</h2>
             <span class="text-xs text-gray-500">median sample — ranks {{ data.meta.avg_rank_start }}–{{ data.meta.avg_rank_start + data.avg_videos.length - 1 }} of {{ data.meta.window_size }}</span>
@@ -1122,7 +1122,7 @@ const mergedDurationBuckets = computed(() => {
         </div>
 
         <!-- ── bottom performers ──────────────────────────────────────────── -->
-        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] overflow-hidden">
           <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h2 class="text-xs uppercase tracking-widest text-gray-400">Bottom Performers</h2>
             <span class="text-xs text-gray-500">{{ data.meta.tier_count }} videos — bottom {{ data.meta.tier_pct }}%</span>
