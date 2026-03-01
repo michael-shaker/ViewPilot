@@ -52,6 +52,10 @@ const order = ref('desc')
 const page = ref(1)
 const perPage = 10
 
+// dislike counts fetched from the Return YouTube Dislike API (returnyoutubedislikeapi.com)
+// keyed by youtube_video_id
+const dislikes = ref<Record<string, number>>({})
+
 // load channel then videos on mount
 onMounted(async () => {
   await loadChannel()
@@ -77,9 +81,24 @@ const loadVideos = async () => {
     )
     videos.value = data.videos
     totalVideos.value = data.total
+    fetchDislikes(data.videos)
   } catch (e) {
     loadError.value = 'failed to load videos'
   }
+}
+
+// fires parallel requests to the Return YouTube Dislike API for each video on the page
+const fetchDislikes = (videoList: Video[]) => {
+  videoList.forEach(async v => {
+    try {
+      const res = await $fetch<{ dislikes: number }>(
+        `https://returnyoutubedislikeapi.com/votes?videoId=${v.youtube_video_id}`
+      )
+      dislikes.value[v.youtube_video_id] = res.dislikes
+    } catch {
+      // silently skip — api might not have data for every video
+    }
+  })
 }
 
 const sync = async () => {
@@ -107,6 +126,9 @@ const setSort = async (col: string) => {
 }
 
 const totalPages = computed(() => Math.ceil(totalVideos.value / perPage))
+
+// relative performance bar — each video's views/day vs the page's best
+const pageMaxViewsPerDay = computed(() => Math.max(...videos.value.map(v => v.views_per_day), 1))
 
 const prevPage = async () => {
   if (page.value > 1) { page.value--; await loadVideos() }
@@ -152,6 +174,15 @@ const formatRpm = (n: number | null) => {
   if (n == null) return '—'
   return '$' + n.toFixed(2)
 }
+
+// like percentage = likes / (likes + dislikes) — returns null while data is loading
+const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
+  const dis = dislikes.value[ytVideoId]
+  if (dis === undefined) return null  // still loading
+  const total = likes + dis
+  if (total === 0) return '—'
+  return (likes / total * 100).toFixed(1) + '%'
+}
 </script>
 
 <template>
@@ -173,58 +204,60 @@ const formatRpm = (n: number | null) => {
     <main class="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
       <!-- channel hero card -->
-      <div v-if="channel" class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden">
+      <div v-if="channel" class="relative overflow-hidden rounded-2xl ring-1 ring-white/15">
+        <!-- dark gradient base -->
+        <div class="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950"></div>
+        <!-- ambient glow blobs -->
+        <div class="absolute -top-24 -left-12 w-80 h-80 rounded-full bg-purple-600/20 blur-3xl pointer-events-none"></div>
+        <div class="absolute -top-8 right-24 w-60 h-60 rounded-full bg-indigo-500/15 blur-3xl pointer-events-none"></div>
+        <div class="absolute bottom-0 left-1/2 w-96 h-32 rounded-full bg-indigo-800/20 blur-2xl pointer-events-none"></div>
 
-        <!-- top section: avatar + name + action buttons -->
-        <div class="px-8 py-7 flex items-center gap-6">
-          <img
-            v-if="channel.thumbnail_url"
-            :src="channel.thumbnail_url"
-            class="h-16 w-16 rounded-full ring-2 ring-white/20 shrink-0"
-          />
-          <div v-else class="h-16 w-16 rounded-full bg-white/10 shrink-0 flex items-center justify-center text-gray-500 text-xl">▶</div>
-
-          <div class="flex-1 min-w-0">
-            <h1 class="text-2xl font-bold tracking-tight truncate">{{ channel.title }}</h1>
-            <p class="text-xs text-gray-500 mt-1 uppercase tracking-wider">YouTube Channel</p>
+        <!-- avatar + name + buttons -->
+        <div class="relative px-8 pt-8 pb-6 flex items-center gap-6">
+          <div class="relative shrink-0">
+            <div class="absolute inset-0 rounded-full bg-purple-500/50 blur-xl scale-125 pointer-events-none"></div>
+            <img v-if="channel.thumbnail_url" :src="channel.thumbnail_url"
+              class="relative h-20 w-20 rounded-full ring-2 ring-purple-400/40 shrink-0" />
+            <div v-else class="relative h-20 w-20 rounded-full bg-white/10 flex items-center justify-center text-gray-400 text-2xl ring-2 ring-purple-400/20">▶</div>
           </div>
 
-          <!-- action buttons — larger per spec -->
+          <div class="flex-1 min-w-0">
+            <h1 class="text-3xl font-bold tracking-tight truncate">{{ channel.title }}</h1>
+            <p v-if="channel.last_synced_at" class="text-xs text-purple-400/50 mt-2 uppercase tracking-widest">
+              Synced {{ formatDate(channel.last_synced_at) }}
+            </p>
+          </div>
+
           <div class="flex items-center gap-3 shrink-0">
             <NuxtLink
               to="/autopsy"
-              class="bg-purple-600 hover:bg-purple-500 active:scale-95 px-6 py-3 rounded-xl text-sm font-semibold transition"
+              class="border border-purple-500/40 bg-purple-500/15 hover:bg-purple-500/30 hover:border-purple-400/60 active:scale-95 px-8 py-3.5 rounded-xl text-base font-semibold text-purple-300 hover:text-purple-200 transition"
             >Autopsy</NuxtLink>
             <button
               @click="sync"
               :disabled="syncing"
-              class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 active:scale-95 px-6 py-3 rounded-xl text-sm font-semibold transition"
+              class="border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/30 hover:border-indigo-400/60 disabled:opacity-40 active:scale-95 px-8 py-3.5 rounded-xl text-base font-semibold text-indigo-300 hover:text-indigo-200 transition"
             >{{ syncing ? 'Syncing…' : 'Sync' }}</button>
           </div>
         </div>
 
-        <!-- stats + last synced footer strip -->
-        <div class="border-t border-white/10 bg-black/20 px-8 py-4 flex items-center gap-8 flex-wrap">
-          <div class="flex items-baseline gap-2">
-            <span class="text-xl font-bold">{{ formatNum(channel.subscriber_count) }}</span>
-            <span class="text-xs text-gray-500 uppercase tracking-wider">Subscribers</span>
+        <!-- stat mini-cards -->
+        <div class="relative px-8 pb-8 grid grid-cols-3 gap-3">
+          <div class="bg-white/5 rounded-xl p-5 ring-1 ring-white/10 flex flex-col gap-1.5">
+            <span class="text-3xl font-bold tracking-tight">{{ formatNum(channel.subscriber_count) }}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-widest font-medium">Subscribers</span>
           </div>
-          <div class="w-px h-4 bg-white/10 shrink-0"></div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-xl font-bold">{{ formatNum(channel.view_count) }}</span>
-            <span class="text-xs text-gray-500 uppercase tracking-wider">Total Views</span>
+          <div class="bg-white/5 rounded-xl p-5 ring-1 ring-white/10 flex flex-col gap-1.5">
+            <span class="text-3xl font-bold tracking-tight">{{ formatNum(channel.view_count) }}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-widest font-medium">Total Views</span>
           </div>
-          <div class="w-px h-4 bg-white/10 shrink-0"></div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-xl font-bold">{{ formatNum(channel.video_count) }}</span>
-            <span class="text-xs text-gray-500 uppercase tracking-wider">Videos</span>
+          <div class="bg-white/5 rounded-xl p-5 ring-1 ring-white/10 flex flex-col gap-1.5">
+            <span class="text-3xl font-bold tracking-tight">{{ formatNum(channel.video_count) }}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-widest font-medium">Videos</span>
           </div>
-          <div class="flex-1"></div>
-          <div v-if="channel.last_synced_at" class="text-sm text-gray-400">
-            Last synced <span class="text-gray-200 font-medium ml-1">{{ formatDate(channel.last_synced_at) }}</span>
-          </div>
-          <span v-if="syncError" class="text-xs text-red-400">{{ syncError }}</span>
         </div>
+
+        <span v-if="syncError" class="absolute bottom-4 right-8 text-xs text-red-400">{{ syncError }}</span>
       </div>
 
       <!-- error state -->
@@ -242,8 +275,11 @@ const formatRpm = (n: number | null) => {
 
         <!-- table card header -->
         <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
-          <h2 class="text-xs uppercase tracking-widest text-gray-400">Videos</h2>
-          <span class="text-xs text-gray-500">{{ totalVideos }} total</span>
+          <div class="flex items-center gap-3">
+            <div class="w-1 h-4 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500"></div>
+            <h2 class="text-xs uppercase tracking-widest text-gray-300">Videos</h2>
+          </div>
+          <span class="text-xs text-gray-600">{{ totalVideos }} total</span>
         </div>
 
         <table class="w-full text-sm">
@@ -283,7 +319,7 @@ const formatRpm = (n: number | null) => {
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <template v-for="v in videos" :key="v.id">
+            <template v-for="(v, i) in videos" :key="v.id">
 
               <!-- main row -->
               <tr class="hover:bg-white/5 transition">
@@ -294,10 +330,13 @@ const formatRpm = (n: number | null) => {
                       :src="v.thumbnail_url"
                       class="h-11 w-[72px] rounded-lg object-cover shrink-0 ring-1 ring-white/10"
                     />
-                    <NuxtLink
-                      :to="`/video/${v.id}`"
-                      class="text-sm text-gray-200 hover:text-white transition line-clamp-2 leading-snug"
-                    >{{ v.title }}</NuxtLink>
+                    <div class="flex flex-col gap-1 min-w-0">
+                      <NuxtLink
+                        :to="`/video/${v.id}`"
+                        class="text-sm text-gray-200 hover:text-white transition line-clamp-2 leading-snug"
+                      >{{ v.title }}</NuxtLink>
+                      <span v-if="i === 0 && sortBy === 'views'" class="text-[10px] font-semibold text-amber-400/80 uppercase tracking-widest">Top video</span>
+                    </div>
                   </div>
                 </td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400 whitespace-nowrap text-xs">{{ formatDate(v.published_at) }}</td>
@@ -307,25 +346,44 @@ const formatRpm = (n: number | null) => {
                   <span v-else class="text-gray-600">—</span>
                 </td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatRpm(v.rpm) }}</td>
-                <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatNum(v.like_count) }}</td>
+                <td class="px-4 pt-3 pb-2 text-center text-gray-400">
+                  <div class="flex flex-col items-center gap-1">
+                    <span>{{ formatNum(v.like_count) }}</span>
+                    <span
+                      v-if="getLikeRatio(v.like_count, v.youtube_video_id)"
+                      class="text-[10px] font-medium bg-emerald-500/10 ring-1 ring-emerald-500/25 text-emerald-400 rounded px-1.5 py-0.5 whitespace-nowrap"
+                    >{{ getLikeRatio(v.like_count, v.youtube_video_id) }}</span>
+                    <span v-else class="text-[10px] text-gray-700">…</span>
+                  </div>
+                </td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
               </tr>
 
-              <!-- analytics sub-row — stat chips -->
+              <!-- analytics sub-row — performance bar + colored chips -->
               <tr>
-                <td colspan="7" class="px-5 pb-3 pt-0">
+                <td colspan="7" class="px-5 pb-4 pt-0">
+                  <!-- views/day performance bar -->
+                  <div class="pl-[84px] pr-4 mb-2.5">
+                    <div class="h-0.5 rounded-full bg-white/5 overflow-hidden">
+                      <div
+                        class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400 transition-all duration-700"
+                        :style="{ width: Math.round(Math.min(v.views_per_day / pageMaxViewsPerDay, 1) * 100) + '%' }"
+                      ></div>
+                    </div>
+                  </div>
+                  <!-- colored chips -->
                   <div class="flex items-center gap-2 pl-[84px] flex-wrap">
-                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
-                      Views/day <span class="text-gray-300 font-medium ml-1">{{ formatNum(v.views_per_day) }}</span>
+                    <span class="bg-blue-500/10 ring-1 ring-blue-500/20 rounded-lg px-2.5 py-1 text-xs text-blue-400/80">
+                      Views/day <span class="text-blue-300 font-medium ml-1">{{ formatNum(v.views_per_day) }}</span>
                     </span>
-                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
-                      Avg watch <span class="text-gray-300 font-medium ml-1">{{ formatDuration(v.average_view_duration_seconds) }}</span>
+                    <span class="bg-purple-500/10 ring-1 ring-purple-500/20 rounded-lg px-2.5 py-1 text-xs text-purple-400/80">
+                      Avg watch <span class="text-purple-300 font-medium ml-1">{{ formatDuration(v.average_view_duration_seconds) }}</span>
                     </span>
-                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
-                      CTR <span class="text-gray-300 font-medium ml-1">{{ formatCtr(v.click_through_rate) }}</span>
+                    <span class="bg-yellow-500/10 ring-1 ring-yellow-500/20 rounded-lg px-2.5 py-1 text-xs text-yellow-400/80">
+                      CTR <span class="text-yellow-300 font-medium ml-1">{{ formatCtr(v.click_through_rate) }}</span>
                     </span>
-                    <span class="bg-white/5 rounded-lg px-2.5 py-1 text-xs text-gray-500">
-                      Impressions <span class="text-gray-300 font-medium ml-1">{{ formatNum(v.impressions) }}</span>
+                    <span class="bg-indigo-500/10 ring-1 ring-indigo-500/20 rounded-lg px-2.5 py-1 text-xs text-indigo-400/80">
+                      Impressions <span class="text-indigo-300 font-medium ml-1">{{ formatNum(v.impressions) }}</span>
                     </span>
                   </div>
                 </td>

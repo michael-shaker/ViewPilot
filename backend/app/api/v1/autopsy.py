@@ -244,9 +244,13 @@ async def get_autopsy(
         })
 
     # exclude shorts — they perform completely differently and would skew all metrics.
-    # keep the count so we can surface it in the ui if needed later.
     shorts_excluded = sum(1 for v in enriched if v["is_short"])
     enriched = [v for v in enriched if not v["is_short"]]
+
+    # exclude livestreams (duration 0 or None — youtube returns "P0D" for live broadcasts)
+    # and exclude videos with ≤1 total view (unpublished drafts, accidental uploads, etc.)
+    junk_excluded = sum(1 for v in enriched if not v["duration_seconds"] or v["view_count"] <= 1)
+    enriched = [v for v in enriched if v["duration_seconds"] and v["view_count"] > 1]
 
     if len(enriched) < 4:
         raise HTTPException(
@@ -371,11 +375,20 @@ async def get_autopsy(
         if b != "Unknown" and vpds
     }
     bucket_total_views = {b: views for b, views in bucket_views.items() if b != "Unknown"}
-    best_bucket = max(bucket_avg_vpd, key=bucket_avg_vpd.get) if bucket_avg_vpd else None
+
+    # star goes to whichever bucket has the best top:bottom ratio
+    top_bucket_counts = bucket_breakdown(top)
+    bottom_bucket_counts = bucket_breakdown(bottom)
+    bucket_ratio = {
+        b: top_bucket_counts.get(b, 0) / max(bottom_bucket_counts.get(b, 0), 1)
+        for b in DURATION_BUCKETS
+        if top_bucket_counts.get(b, 0) > 0 or bottom_bucket_counts.get(b, 0) > 0
+    }
+    best_bucket = max(bucket_ratio, key=bucket_ratio.get) if bucket_ratio else None
 
     duration_analysis = {
-        "top": bucket_breakdown(top),
-        "bottom": bucket_breakdown(bottom),
+        "top": top_bucket_counts,
+        "bottom": bottom_bucket_counts,
         "avg_vpd_by_bucket": bucket_avg_vpd,
         "total_views_by_bucket": bucket_total_views,
         "best_bucket": best_bucket,
@@ -491,6 +504,7 @@ async def get_autopsy(
             "tier_pct": tier_pct,
             "tier_count": tier_count,
             "shorts_excluded": shorts_excluded,
+            "junk_excluded": junk_excluded,
             "window_oldest": window_oldest,
             "window_newest": window_newest,
             "avg_rank_start": avg_rank_start,
