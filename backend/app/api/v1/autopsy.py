@@ -236,7 +236,14 @@ async def get_autopsy(
             # analytics may be None if the analytics api hasn't synced yet
             "ctr": a.click_through_rate if a else None,
             "avg_view_duration": a.average_view_duration_seconds if a else None,
-            "avg_view_pct": a.average_view_percentage if a else None,
+            # calculate avg view % from watch time / duration when the api value isn't available
+            "avg_view_pct": (
+                a.average_view_percentage
+                if (a and a.average_view_percentage is not None)
+                else (a.average_view_duration_seconds / v.duration_seconds * 100)
+                if (a and a.average_view_duration_seconds and v.duration_seconds)
+                else None
+            ),
             "impressions": a.impressions if a else None,
             "estimated_minutes_watched": a.estimated_minutes_watched if a else None,
             "rpm": a.rpm if a else None,

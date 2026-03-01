@@ -123,7 +123,13 @@ async def list_videos(
                 "click_through_rate": a.click_through_rate if a else None,
                 "impressions": a.impressions if a else None,
                 "average_view_duration_seconds": a.average_view_duration_seconds if a else None,
-                "average_view_percentage": a.average_view_percentage if a else None,
+                "average_view_percentage": (
+                    a.average_view_percentage
+                    if (a and a.average_view_percentage is not None)
+                    else round(a.average_view_duration_seconds / v.duration_seconds * 100, 1)
+                    if (a and a.average_view_duration_seconds and v.duration_seconds)
+                    else None
+                ),
                 "estimated_revenue": a.estimated_revenue if a else None,
                 "rpm": a.rpm if a else None,
             }
@@ -233,7 +239,13 @@ async def get_video(
         "click_through_rate": analytics.click_through_rate if analytics else None,
         "impressions": analytics.impressions if analytics else None,
         "average_view_duration_seconds": analytics.average_view_duration_seconds if analytics else None,
-        "average_view_percentage": analytics.average_view_percentage if analytics else None,
+        "average_view_percentage": (
+            analytics.average_view_percentage
+            if (analytics and analytics.average_view_percentage is not None)
+            else round(analytics.average_view_duration_seconds / video.duration_seconds * 100, 1)
+            if (analytics and analytics.average_view_duration_seconds and video.duration_seconds)
+            else None
+        ),
         "estimated_minutes_watched": analytics.estimated_minutes_watched if analytics else None,
         "estimated_revenue": analytics.estimated_revenue if analytics else None,
         "estimated_ad_revenue": analytics.estimated_ad_revenue if analytics else None,

@@ -535,6 +535,23 @@ const mergedDurationBuckets = computed(() => {
   }
   return result
 })
+
+// ── retention & discovery bar widths ──────────────────────────────────────────
+// normalize a value against the max of the two groups so both bars fit in the track
+const barPct = (val: number | null | undefined, max: number) =>
+  val == null || max === 0 ? 0 : Math.min(100, (val / max) * 100)
+
+const ctrMax     = computed(() => Math.max(data.value?.key_metrics.ctr.top ?? 0, data.value?.key_metrics.ctr.bottom ?? 0))
+const ctrTopBar  = computed(() => barPct(data.value?.key_metrics.ctr.top,    ctrMax.value))
+const ctrBotBar  = computed(() => barPct(data.value?.key_metrics.ctr.bottom, ctrMax.value))
+
+const viewPctMax    = computed(() => Math.max(data.value?.key_metrics.avg_view_pct.top ?? 0, data.value?.key_metrics.avg_view_pct.bottom ?? 0))
+const viewPctTopBar = computed(() => barPct(data.value?.key_metrics.avg_view_pct.top,    viewPctMax.value))
+const viewPctBotBar = computed(() => barPct(data.value?.key_metrics.avg_view_pct.bottom, viewPctMax.value))
+
+const impressionsMax    = computed(() => Math.max(data.value?.key_metrics.impressions.top ?? 0, data.value?.key_metrics.impressions.bottom ?? 0))
+const impressionsTopBar = computed(() => barPct(data.value?.key_metrics.impressions.top,    impressionsMax.value))
+const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressions.bottom, impressionsMax.value))
 </script>
 
 <template>
@@ -987,6 +1004,137 @@ const mergedDurationBuckets = computed(() => {
               </span>
               <span v-else class="text-xs text-gray-500">=</span>
             </div>
+          </div>
+        </div>
+
+        <!-- ── viewer retention & discovery ──────────────────────────────── -->
+        <div class="bg-white/20 ring-1 ring-white/30 rounded-2xl backdrop-blur-[4px] p-6">
+          <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-6">Viewer Retention &amp; Discovery</h2>
+
+          <div class="space-y-7">
+
+            <!-- ctr -->
+            <div v-if="data.key_metrics.ctr.top != null || data.key_metrics.ctr.bottom != null">
+              <div class="flex items-baseline justify-between mb-3">
+                <div>
+                  <span class="text-sm font-semibold text-white">Click-Through Rate</span>
+                  <span class="ml-2 text-xs text-gray-500">how often your thumbnail gets clicked when shown</span>
+                </div>
+                <span
+                  v-if="data.key_metrics.ctr.delta_pct != null"
+                  :class="data.key_metrics.ctr.delta_pct >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                  class="text-xs font-semibold shrink-0 ml-4"
+                >{{ data.key_metrics.ctr.delta_pct >= 0 ? '+' : '' }}{{ data.key_metrics.ctr.delta_pct.toFixed(1) }}% vs bottom</span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-emerald-400/70 w-20 shrink-0 uppercase tracking-wider">Top {{ data.meta.tier_pct }}%</span>
+                  <div class="flex-1 bg-white/5 rounded-full h-3">
+                    <div class="bg-emerald-500 rounded-full h-3 transition-all" :style="{ width: ctrTopBar + '%' }"></div>
+                  </div>
+                  <span class="text-sm font-bold text-emerald-300 w-14 text-right tabular-nums">
+                    {{ data.key_metrics.ctr.top != null ? data.key_metrics.ctr.top.toFixed(2) + '%' : '—' }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-red-400/70 w-20 shrink-0 uppercase tracking-wider">Bottom {{ data.meta.tier_pct }}%</span>
+                  <div class="flex-1 bg-white/5 rounded-full h-3">
+                    <div class="bg-red-500 rounded-full h-3 transition-all" :style="{ width: ctrBotBar + '%' }"></div>
+                  </div>
+                  <span class="text-sm font-bold text-red-300 w-14 text-right tabular-nums">
+                    {{ data.key_metrics.ctr.bottom != null ? data.key_metrics.ctr.bottom.toFixed(2) + '%' : '—' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- avg view % (retention) -->
+            <div
+              v-if="data.key_metrics.avg_view_pct.top != null || data.key_metrics.avg_view_pct.bottom != null"
+              class="pt-6 border-t border-white/10"
+            >
+              <div class="flex items-baseline justify-between mb-3">
+                <div>
+                  <span class="text-sm font-semibold text-white">Average View Percentage</span>
+                  <span class="ml-2 text-xs text-gray-500">how much of each video viewers actually watch</span>
+                </div>
+                <span
+                  v-if="data.key_metrics.avg_view_pct.delta_pct != null"
+                  :class="data.key_metrics.avg_view_pct.delta_pct >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                  class="text-xs font-semibold shrink-0 ml-4"
+                >{{ data.key_metrics.avg_view_pct.delta_pct >= 0 ? '+' : '' }}{{ data.key_metrics.avg_view_pct.delta_pct.toFixed(1) }}% vs bottom</span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-emerald-400/70 w-20 shrink-0 uppercase tracking-wider">Top {{ data.meta.tier_pct }}%</span>
+                  <div class="flex-1 bg-white/5 rounded-full h-3">
+                    <div class="bg-emerald-500 rounded-full h-3 transition-all" :style="{ width: viewPctTopBar + '%' }"></div>
+                  </div>
+                  <span class="text-sm font-bold text-emerald-300 w-14 text-right tabular-nums">
+                    {{ data.key_metrics.avg_view_pct.top != null ? data.key_metrics.avg_view_pct.top.toFixed(1) + '%' : '—' }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-red-400/70 w-20 shrink-0 uppercase tracking-wider">Bottom {{ data.meta.tier_pct }}%</span>
+                  <div class="flex-1 bg-white/5 rounded-full h-3">
+                    <div class="bg-red-500 rounded-full h-3 transition-all" :style="{ width: viewPctBotBar + '%' }"></div>
+                  </div>
+                  <span class="text-sm font-bold text-red-300 w-14 text-right tabular-nums">
+                    {{ data.key_metrics.avg_view_pct.bottom != null ? data.key_metrics.avg_view_pct.bottom.toFixed(1) + '%' : '—' }}
+                  </span>
+                </div>
+              </div>
+              <p class="mt-2 text-xs text-gray-600">
+                calculated from avg watch time ÷ video duration where direct data isn't available
+              </p>
+            </div>
+
+            <!-- impressions -->
+            <div
+              v-if="data.key_metrics.impressions.top != null || data.key_metrics.impressions.bottom != null"
+              class="pt-6 border-t border-white/10"
+            >
+              <div class="flex items-baseline justify-between mb-3">
+                <div>
+                  <span class="text-sm font-semibold text-white">Impressions</span>
+                  <span class="ml-2 text-xs text-gray-500">times your thumbnail appeared in YouTube's feed</span>
+                </div>
+                <span
+                  v-if="data.key_metrics.impressions.delta_pct != null"
+                  :class="data.key_metrics.impressions.delta_pct >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                  class="text-xs font-semibold shrink-0 ml-4"
+                >{{ data.key_metrics.impressions.delta_pct >= 0 ? '+' : '' }}{{ data.key_metrics.impressions.delta_pct.toFixed(1) }}% vs bottom</span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-emerald-400/70 w-20 shrink-0 uppercase tracking-wider">Top {{ data.meta.tier_pct }}%</span>
+                  <div class="flex-1 bg-white/5 rounded-full h-3">
+                    <div class="bg-emerald-500 rounded-full h-3 transition-all" :style="{ width: impressionsTopBar + '%' }"></div>
+                  </div>
+                  <span class="text-sm font-bold text-emerald-300 w-14 text-right tabular-nums text-xs">
+                    {{ data.key_metrics.impressions.top != null ? fmtNum(data.key_metrics.impressions.top) : '—' }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-red-400/70 w-20 shrink-0 uppercase tracking-wider">Bottom {{ data.meta.tier_pct }}%</span>
+                  <div class="flex-1 bg-white/5 rounded-full h-3">
+                    <div class="bg-red-500 rounded-full h-3 transition-all" :style="{ width: impressionsBotBar + '%' }"></div>
+                  </div>
+                  <span class="text-sm font-bold text-red-300 w-14 text-right tabular-nums text-xs">
+                    {{ data.key_metrics.impressions.bottom != null ? fmtNum(data.key_metrics.impressions.bottom) : '—' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- no data at all -->
+            <div
+              v-if="data.key_metrics.ctr.top == null && data.key_metrics.ctr.bottom == null && data.key_metrics.avg_view_pct.top == null && data.key_metrics.avg_view_pct.bottom == null && data.key_metrics.impressions.top == null && data.key_metrics.impressions.bottom == null"
+              class="text-sm text-gray-500 text-center py-4"
+            >
+              No analytics data yet — run a sync to pull CTR and retention data from YouTube.
+            </div>
+
           </div>
         </div>
 
