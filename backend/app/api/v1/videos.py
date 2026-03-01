@@ -34,6 +34,7 @@ SORT_COLUMNS = {
 
 @router.get("")
 async def list_videos(
+    request: Request,
     channel_id: UUID,
     sort_by: str = Query(default="published_at", enum=list(SORT_COLUMNS)),
     order: str = Query(default="desc", enum=["asc", "desc"]),
@@ -47,6 +48,13 @@ async def list_videos(
     channel = await db.get(Channel, channel_id)
     if not channel or channel.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="channel not found")
+
+    # check redis — the join query is expensive and this data only changes on sync
+    redis = request.app.state.redis
+    cache_key = f"vlist:{channel_id}:{sort_by}:{order}:{page}:{per_page}"
+    cached = await redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
 
     # get the latest stats snapshot per video using a subquery
     latest_stats = (
@@ -98,7 +106,7 @@ async def list_videos(
     count_query = select(func.count(Video.id)).where(Video.channel_id == channel_id)
     total = (await db.execute(count_query)).scalar_one()
 
-    return {
+    result = {
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -136,6 +144,8 @@ async def list_videos(
             for v, s, a in rows
         ],
     }
+    await redis.set(cache_key, json.dumps(result, default=str), ex=300)
+    return result
 
 
 @router.get("/dislikes")
@@ -183,6 +193,7 @@ async def get_video_dislikes(
 
 @router.get("/{video_id}")
 async def get_video(
+    request: Request,
     video_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -196,6 +207,13 @@ async def get_video(
     channel = await db.get(Channel, video.channel_id)
     if not channel or channel.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="video not found")
+
+    # return from redis if available — avoids three db queries on every page open
+    redis = request.app.state.redis
+    cache_key = f"video:{video_id}"
+    cached = await redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
 
     # all stats snapshots, newest first
     stats_result = await db.execute(
@@ -217,7 +235,7 @@ async def get_video(
     latest = stats_history[0] if stats_history else None
     days_live = max((date.today() - video.published_at.date()).days, 1)
 
-    return {
+    result = {
         "id": str(video.id),
         "youtube_video_id": video.youtube_video_id,
         "title": video.title,
@@ -262,6 +280,8 @@ async def get_video(
             for s in stats_history
         ],
     }
+    await redis.set(cache_key, json.dumps(result, default=str), ex=300)
+    return result
 
 
 @router.get("/{video_id}/history")

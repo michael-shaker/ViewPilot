@@ -1,9 +1,10 @@
+import json
 import re
 from collections import Counter
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,6 +135,7 @@ def _analyze_titles(titles: list[str]) -> dict:
 
 @router.get("")
 async def get_autopsy(
+    request: Request,
     channel_id: UUID,
     window_size: int = Query(default=100, ge=10, le=200),
     tier_pct: int = Query(default=10, enum=[5, 10, 20, 25]),
@@ -147,6 +149,13 @@ async def get_autopsy(
     channel = await db.get(Channel, channel_id)
     if not channel or channel.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="channel not found")
+
+    # serve from redis if we have a recent result — the analytics api call alone takes 1-2s
+    redis = request.app.state.redis
+    cache_key = f"autopsy:{channel_id}:{window_size}:{tier_pct}"
+    cached = await redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
 
     # fetch 30-day views per video from analytics api — gives current velocity
     # instead of lifetime average. falls back gracefully if the call fails.
@@ -505,7 +514,7 @@ async def get_autopsy(
     window_oldest = min(published_dates).date().isoformat() if published_dates else None
     window_newest = max(published_dates).date().isoformat() if published_dates else None
 
-    return {
+    result = {
         "meta": {
             "window_size": len(enriched),
             "tier_pct": tier_pct,
@@ -528,3 +537,6 @@ async def get_autopsy(
         "avg_videos": [video_summary(v) for v in avg_sample],
         "bottom_videos": [video_summary(v) for v in bottom],
     }
+    # cache for 30 minutes — the analytics api call is expensive and data only changes on sync
+    await redis.set(cache_key, json.dumps(result, default=str), ex=1800)
+    return result

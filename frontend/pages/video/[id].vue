@@ -80,10 +80,9 @@ const comments = ref<Comment[]>([])
 const commentsLoading = ref(true)
 
 // tracks which avatar images failed to load so we can show the letter fallback instead
-const failedAvatars = ref(new Set<string>())
-const onAvatarError = (id: string) => {
-  failedAvatars.value = new Set([...failedAvatars.value, id])
-}
+// reactive(Set) lets us call .add() without replacing the whole object every time
+const failedAvatars = reactive(new Set<string>())
+const onAvatarError = (id: string) => { failedAvatars.add(id) }
 
 onMounted(async () => {
   try {
@@ -285,7 +284,7 @@ const historyMaxViews = computed(() =>
     <main v-if="video" class="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
       <!-- hero card -->
-      <div class="relative overflow-hidden rounded-2xl ring-1 ring-white/15 backdrop-blur-[2px]">
+      <div class="relative overflow-hidden rounded-2xl ring-1 ring-white/15">
         <!-- gradient bg -->
         <div class="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950"></div>
         <!-- glow blobs -->
@@ -348,7 +347,7 @@ const historyMaxViews = computed(() =>
       </div>
 
       <!-- analytics row (only shown when data exists) -->
-      <div v-if="hasAnalytics" class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6">
+      <div v-if="hasAnalytics" class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl p-6">
         <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-4">Analytics</h2>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div class="bg-amber-500/10 ring-1 ring-amber-500/20 rounded-xl p-4 text-center">
@@ -382,7 +381,7 @@ const historyMaxViews = computed(() =>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 
         <!-- description -->
-        <div class="md:col-span-2 bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6">
+        <div class="md:col-span-2 bg-slate-900/80 ring-1 ring-white/10 rounded-2xl p-6">
           <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-3">Description</h2>
           <p v-if="video.description" class="text-sm text-gray-300 leading-relaxed whitespace-pre-line">
             {{ descExpanded ? video.description : shortDescription }}
@@ -398,7 +397,7 @@ const historyMaxViews = computed(() =>
         </div>
 
         <!-- metadata -->
-        <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6 space-y-4">
+        <div class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl p-6 space-y-4">
           <h2 class="text-xs uppercase tracking-widest text-gray-400">Details</h2>
           <div class="space-y-3 text-sm">
             <div class="flex justify-between">
@@ -422,7 +421,7 @@ const historyMaxViews = computed(() =>
       </div>
 
       <!-- tags -->
-      <div v-if="video.tags.length" class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] p-6">
+      <div v-if="video.tags.length" class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl p-6">
         <h2 class="text-xs uppercase tracking-widest text-gray-400 mb-4">Tags</h2>
         <div class="flex flex-wrap gap-2">
           <span
@@ -436,7 +435,7 @@ const historyMaxViews = computed(() =>
       </div>
 
       <!-- stats history -->
-      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+      <div class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl overflow-hidden">
         <div class="px-6 py-4 border-b border-white/10 flex items-baseline justify-between">
           <h2 class="text-xs uppercase tracking-widest text-gray-400">Stats History</h2>
           <span class="text-xs text-gray-500">{{ historyIntervalLabel }}</span>
@@ -482,7 +481,7 @@ const historyMaxViews = computed(() =>
       </div>
 
       <!-- comments section -->
-      <div class="bg-white/10 ring-1 ring-white/20 rounded-2xl backdrop-blur-[2px] overflow-hidden">
+      <div class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl overflow-hidden">
         <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
           <h2 class="text-xs uppercase tracking-widest text-gray-400">Top Comments</h2>
           <span class="text-xs text-gray-600">{{ commentsLoading ? '…' : comments.length + ' threads' }}</span>

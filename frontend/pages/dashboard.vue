@@ -175,14 +175,17 @@ const formatRpm = (n: number | null) => {
   return '$' + n.toFixed(2)
 }
 
-// like percentage = likes / (likes + dislikes) — returns null while data is loading
-const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
-  const dis = dislikes.value[ytVideoId]
-  if (dis === undefined) return null  // still loading
-  const total = likes + dis
-  if (total === 0) return '—'
-  return (likes / total * 100).toFixed(1) + '%'
-}
+// pre-computed map so the template never calls a function twice per row per render
+const likeRatioMap = computed<Record<string, string | null>>(() => {
+  const map: Record<string, string | null> = {}
+  for (const v of videos.value) {
+    const dis = dislikes.value[v.youtube_video_id]
+    if (dis === undefined) { map[v.youtube_video_id] = null; continue }
+    const total = v.like_count + dis
+    map[v.youtube_video_id] = total > 0 ? (v.like_count / total * 100).toFixed(1) + '%' : null
+  }
+  return map
+})
 </script>
 
 <template>
@@ -204,7 +207,7 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
     <main class="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
       <!-- channel hero card -->
-      <div v-if="channel" class="relative overflow-hidden rounded-2xl ring-1 ring-white/15 backdrop-blur-[2px]">
+      <div v-if="channel" class="relative overflow-hidden rounded-2xl ring-1 ring-white/15">
         <!-- dark gradient base -->
         <div class="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950"></div>
         <!-- ambient glow blobs -->
@@ -261,17 +264,17 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
       </div>
 
       <!-- error state -->
-      <div v-else-if="loadError" class="bg-white/5 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-red-400 text-sm">
+      <div v-else-if="loadError" class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-red-400 text-sm">
         {{ loadError }}
       </div>
 
       <!-- loading state -->
-      <div v-else class="bg-white/5 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-gray-500 text-sm">
+      <div v-else class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-gray-500 text-sm">
         Loading channel…
       </div>
 
       <!-- video table -->
-      <div v-if="videos.length" class="bg-white/15 ring-1 ring-white/25 rounded-2xl overflow-hidden backdrop-blur-[2px]">
+      <div v-if="videos.length" class="bg-slate-900/80 ring-1 ring-white/15 rounded-2xl overflow-hidden">
 
         <!-- table card header -->
         <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
@@ -347,13 +350,12 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
                 </td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatRpm(v.rpm) }}</td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400">
-                  <div class="flex flex-col items-center gap-1">
+                  <div class="inline-flex items-center gap-1.5">
                     <span>{{ formatNum(v.like_count) }}</span>
                     <span
-                      v-if="getLikeRatio(v.like_count, v.youtube_video_id)"
+                      v-if="likeRatioMap[v.youtube_video_id]"
                       class="text-[10px] font-medium bg-emerald-500/10 ring-1 ring-emerald-500/25 text-emerald-400 rounded px-1.5 py-0.5 whitespace-nowrap"
-                    >{{ getLikeRatio(v.like_count, v.youtube_video_id) }}</span>
-                    <span v-else class="text-[10px] text-gray-700">…</span>
+                    >{{ likeRatioMap[v.youtube_video_id] }}</span>
                   </div>
                 </td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400">{{ formatNum(v.comment_count) }}</td>
@@ -366,7 +368,7 @@ const getLikeRatio = (likes: number, ytVideoId: string): string | null => {
                   <div class="pl-[84px] pr-4 mb-2.5">
                     <div class="h-0.5 rounded-full bg-white/5 overflow-hidden">
                       <div
-                        class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400 transition-all duration-700"
+                        class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-400"
                         :style="{ width: Math.round(Math.min(v.views_per_day / pageMaxViewsPerDay, 1) * 100) + '%' }"
                       ></div>
                     </div>

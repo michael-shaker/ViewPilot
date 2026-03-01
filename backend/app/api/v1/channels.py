@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,7 @@ async def list_channels(
 
 @router.post("/sync")
 async def trigger_sync(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -48,9 +49,20 @@ async def trigger_sync(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    # bust all caches for this channel so fresh data shows immediately after sync
+    redis = request.app.state.redis
+    channel_id = str(channel.id)
+    # delete autopsy cache
+    for pct in [5, 10, 20, 25]:
+        for ws in [10, 50, 100, 150, 200]:
+            await redis.delete(f"autopsy:{channel_id}:{ws}:{pct}")
+    # delete video list cache pages (covers common page/sort combos)
+    async for key in redis.scan_iter(f"vlist:{channel_id}:*"):
+        await redis.delete(key)
+
     return {
         "ok": True,
-        "channel_id": str(channel.id),
+        "channel_id": channel_id,
         "title": channel.title,
         "video_count": channel.video_count,
     }
