@@ -3,6 +3,7 @@ definePageMeta({ middleware: 'auth' })
 
 const api = useApi()
 const { user, logout } = useAuth()
+const { showRevenue, toggleRevenue } = useRevenue()
 
 interface Channel {
   id: string
@@ -42,21 +43,46 @@ interface VideosResponse {
 }
 
 const channel = ref<Channel | null>(null)
-const videos = ref<Video[]>([])
-const totalVideos = ref(0)
+const allVideos = ref<Video[]>([])
 const syncing = ref(false)
 const loadError = ref<string | null>(null)
 const syncError = ref<string | null>(null)
 const sortBy = ref('published_at')
 const order = ref('desc')
 const page = ref(1)
-const perPage = 10
+const perPage = 20
 
-// dislike counts fetched from the Return YouTube Dislike API (returnyoutubedislikeapi.com)
-// keyed by youtube_video_id
+// filter state
+const searchQuery = ref('')
+const dateFrom = ref<string | null>(null)  // "YYYY-MM" or null
+const dateTo   = ref<string | null>(null)  // "YYYY-MM" or null
+
+// unique year-months from the actual video library, oldest first
+const availableMonths = computed(() => {
+  const months = new Set<string>()
+  for (const v of allVideos.value) months.add(v.published_at.slice(0, 7))
+  return [...months].sort()
+})
+
+// from options: exclude anything after the current "to" selection
+const fromOptions = computed(() =>
+  dateTo.value ? availableMonths.value.filter(m => m <= dateTo.value!) : availableMonths.value
+)
+
+// to options: exclude anything before the current "from" selection
+const toOptions = computed(() =>
+  dateFrom.value ? availableMonths.value.filter(m => m >= dateFrom.value!) : availableMonths.value
+)
+
+// "2023-01" → "Jan 2023"
+const fmtMonth = (ym: string) => {
+  const [y, m] = ym.split('-')
+  return new Date(+y, +m - 1).toLocaleString('en-US', { month: 'short', year: 'numeric' })
+}
+
+// dislike counts keyed by youtube_video_id — fetched from the backend (cached in redis for 24h)
 const dislikes = ref<Record<string, number>>({})
 
-// load channel then videos on mount
 onMounted(async () => {
   await loadChannel()
 })
@@ -76,18 +102,16 @@ const loadChannel = async () => {
 const loadVideos = async () => {
   if (!channel.value) return
   try {
+    // load the full library at once so search/filter works across all videos, not just one page
     const data = await api<VideosResponse>(
-      `/api/v1/videos?channel_id=${channel.value.id}&sort_by=${sortBy.value}&order=${order.value}&page=${page.value}&per_page=${perPage}`
+      `/api/v1/videos?channel_id=${channel.value.id}&sort_by=published_at&order=desc&page=1&per_page=500`
     )
-    videos.value = data.videos
-    totalVideos.value = data.total
-    fetchDislikes(data.videos)
+    allVideos.value = data.videos
   } catch (e) {
     loadError.value = 'failed to load videos'
   }
 }
 
-// one backend call gets all dislike counts for the page — backend caches them in redis for 24h
 const fetchDislikes = async (videoList: Video[]) => {
   if (!videoList.length) return
   const ids = videoList.map(v => v.youtube_video_id).join(',')
@@ -114,28 +138,90 @@ const sync = async () => {
   }
 }
 
-const setSort = async (col: string) => {
+// returns the sort value for a video given a column key — handles all sortable fields
+const getSortValue = (v: Video, col: string): number | string | null => {
+  switch (col) {
+    case 'views':        return v.view_count
+    case 'likes':        return v.like_count
+    case 'comments':     return v.comment_count
+    case 'published_at': return v.published_at
+    case 'duration':     return v.duration_seconds
+    case 'title':        return v.title
+    case 'revenue':      return v.estimated_revenue
+    case 'rpm':          return v.rpm
+    default:             return null
+  }
+}
+
+// all filtering and sorting is client-side — instant, no api round-trips
+const filteredSorted = computed(() => {
+  let list = allVideos.value
+
+  // title search — case-insensitive substring match
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase().trim()
+    list = list.filter(v => v.title.toLowerCase().includes(q))
+  }
+
+  // date range — compare "YYYY-MM" strings (lexicographic works correctly for ISO dates)
+  if (dateFrom.value) list = list.filter(v => v.published_at.slice(0, 7) >= dateFrom.value!)
+  if (dateTo.value)   list = list.filter(v => v.published_at.slice(0, 7) <= dateTo.value!)
+
+  // sort — nulls always sink to the bottom regardless of sort direction
+  const dir = order.value === 'desc' ? -1 : 1
+  return [...list].sort((a, b) => {
+    const av = getSortValue(a, sortBy.value)
+    const bv = getSortValue(b, sortBy.value)
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    if (typeof av === 'string' && typeof bv === 'string') return dir * av.localeCompare(bv)
+    return dir * ((av as number) - (bv as number))
+  })
+})
+
+const totalFiltered  = computed(() => filteredSorted.value.length)
+const totalPages     = computed(() => Math.ceil(totalFiltered.value / perPage))
+const paginatedVideos = computed(() =>
+  filteredSorted.value.slice((page.value - 1) * perPage, page.value * perPage)
+)
+
+const hasActiveFilters = computed(() =>
+  searchQuery.value.trim() !== '' || dateFrom.value !== null || dateTo.value !== null
+)
+
+const clearFilters = () => {
+  searchQuery.value = ''
+  dateFrom.value = null
+  dateTo.value = null
+}
+
+// reset to page 1 whenever filters or sort change so you don't end up on an empty page
+watch([searchQuery, dateFrom, dateTo, sortBy, order], () => {
+  page.value = 1
+})
+
+// fetch dislike counts whenever the visible set changes (pagination, filters)
+watch(paginatedVideos, (newVideos) => {
+  fetchDislikes(newVideos)
+}, { immediate: true })
+
+const setSort = (col: string) => {
   if (sortBy.value === col) {
     order.value = order.value === 'desc' ? 'asc' : 'desc'
   } else {
     sortBy.value = col
     order.value = 'desc'
   }
-  page.value = 1
-  await loadVideos()
 }
 
-const totalPages = computed(() => Math.ceil(totalVideos.value / perPage))
+// relative performance bar — each video vs the best on the current visible page
+const pageMaxViewsPerDay = computed(() =>
+  Math.max(...paginatedVideos.value.map(v => v.views_per_day), 1)
+)
 
-// relative performance bar — each video's views/day vs the page's best
-const pageMaxViewsPerDay = computed(() => Math.max(...videos.value.map(v => v.views_per_day), 1))
-
-const prevPage = async () => {
-  if (page.value > 1) { page.value--; await loadVideos() }
-}
-const nextPage = async () => {
-  if (page.value < totalPages.value) { page.value++; await loadVideos() }
-}
+const prevPage = () => { if (page.value > 1) page.value-- }
+const nextPage = () => { if (page.value < totalPages.value) page.value++ }
 
 const formatNum = (n: number | null) => {
   if (n == null) return '—'
@@ -152,7 +238,6 @@ const sortIcon = (col: string) => {
   return order.value === 'desc' ? '↓' : '↑'
 }
 
-// format seconds into m:ss (e.g. 274 → "4:34")
 const formatDuration = (secs: number | null) => {
   if (secs == null) return '—'
   const m = Math.floor(secs / 60)
@@ -175,10 +260,10 @@ const formatRpm = (n: number | null) => {
   return '$' + n.toFixed(2)
 }
 
-// pre-computed map so the template never calls a function twice per row per render
+// pre-computed so the template never calls a function twice per row per render
 const likeRatioMap = computed<Record<string, string | null>>(() => {
   const map: Record<string, string | null> = {}
-  for (const v of videos.value) {
+  for (const v of paginatedVideos.value) {
     const dis = dislikes.value[v.youtube_video_id]
     if (dis === undefined) { map[v.youtube_video_id] = null; continue }
     const total = v.like_count + dis
@@ -191,16 +276,24 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
 <template>
   <div class="min-h-screen text-white">
 
-    <!-- nav — matches autopsy styling -->
+    <!-- nav -->
     <header class="border-b border-white/10 bg-black/30 backdrop-blur-[2px] px-6 py-4 flex items-center justify-between sticky top-0 z-10">
       <span class="text-lg font-bold tracking-tight">ViewPilot</span>
       <div class="flex items-center gap-4">
+        <!-- revenue toggle -->
+        <button @click="toggleRevenue" class="flex items-center gap-2 group" title="Toggle revenue visibility">
+          <span class="text-sm text-gray-300 group-hover:text-white transition">Revenue</span>
+          <div class="relative w-9 h-5 rounded-full transition-colors duration-200" :class="showRevenue ? 'bg-red-500/70' : 'bg-white/15'">
+            <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200" :class="showRevenue ? 'translate-x-4' : 'translate-x-0'"></span>
+          </div>
+        </button>
+        <div class="w-px h-4 bg-white/10"></div>
         <div class="flex items-center gap-2.5">
           <img v-if="user?.picture_url" :src="user.picture_url" class="h-8 w-8 rounded-full ring-1 ring-white/20" />
-          <span class="text-sm text-gray-300">{{ user?.name }}</span>
+          <span class="text-sm font-medium text-white">{{ user?.name }}</span>
         </div>
         <div class="w-px h-4 bg-white/10"></div>
-        <button @click="logout" class="text-sm text-gray-500 hover:text-white transition">Logout</button>
+        <button @click="logout" class="text-sm text-gray-300 hover:text-white border border-white/15 bg-white/5 hover:bg-white/10 rounded-lg px-3 py-1.5 transition">Logout</button>
       </div>
     </header>
 
@@ -273,19 +366,83 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
         Loading channel…
       </div>
 
-      <!-- video table -->
-      <div v-if="videos.length" class="bg-slate-900/80 ring-1 ring-white/15 rounded-2xl overflow-hidden">
+      <!-- video table — only shows once all videos are loaded -->
+      <div v-if="allVideos.length" class="bg-slate-900/80 ring-1 ring-white/15 rounded-2xl overflow-hidden">
 
-        <!-- table card header -->
-        <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+        <!-- search + date filters in one row -->
+        <div class="px-5 pt-5 pb-4 flex items-center gap-3">
+          <!-- search -->
+          <div class="relative flex-1">
+            <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35m0 0A7 7 0 1 0 6.65 6.65a7 7 0 0 0 9.99 9.99z" />
+            </svg>
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search videos by title…"
+              class="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-10 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/30 transition"
+            />
+            <button
+              v-if="searchQuery"
+              @click="searchQuery = ''"
+              class="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition text-sm leading-none"
+            >✕</button>
+          </div>
+
+          <!-- from -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] text-gray-600 uppercase tracking-widest">From</span>
+            <select
+              v-model="dateFrom"
+              class="bg-slate-800 border border-white/15 rounded-lg px-2.5 py-2 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/40 transition cursor-pointer"
+            >
+              <option :value="null" class="bg-slate-800 text-gray-200">Any</option>
+              <option v-for="m in fromOptions" :key="m" :value="m" class="bg-slate-800 text-gray-200">{{ fmtMonth(m) }}</option>
+            </select>
+          </div>
+
+          <!-- to -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] text-gray-600 uppercase tracking-widest">To</span>
+            <select
+              v-model="dateTo"
+              class="bg-slate-800 border border-white/15 rounded-lg px-2.5 py-2 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/40 transition cursor-pointer"
+            >
+              <option :value="null" class="bg-slate-800 text-gray-200">Any</option>
+              <option v-for="m in toOptions" :key="m" :value="m" class="bg-slate-800 text-gray-200">{{ fmtMonth(m) }}</option>
+            </select>
+          </div>
+
+          <!-- clear all -->
+          <button
+            v-if="hasActiveFilters"
+            @click="clearFilters"
+            class="text-[11px] text-gray-500 hover:text-gray-300 underline underline-offset-2 transition shrink-0"
+          >Clear</button>
+        </div>
+
+        <!-- result count divider -->
+        <div class="border-t border-white/5 px-6 py-3 flex items-center justify-between">
           <div class="flex items-center gap-3">
             <div class="w-1 h-4 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500"></div>
             <h2 class="text-xs uppercase tracking-widest text-gray-300">Videos</h2>
           </div>
-          <span class="text-xs text-gray-600">{{ totalVideos }} total</span>
+          <span class="text-xs text-gray-600">
+            <template v-if="hasActiveFilters">
+              <span class="text-gray-400 font-medium">{{ totalFiltered }}</span> match · {{ allVideos.length }} total
+            </template>
+            <template v-else>{{ allVideos.length }} total</template>
+          </span>
         </div>
 
-        <table class="w-full text-sm">
+        <!-- empty filter result -->
+        <div v-if="totalFiltered === 0" class="px-6 py-16 text-center border-t border-white/5">
+          <p class="text-gray-500 text-sm">No videos match your filters.</p>
+          <button @click="clearFilters" class="mt-3 text-xs text-indigo-400 hover:text-indigo-300 transition">Clear filters</button>
+        </div>
+
+        <!-- table -->
+        <table v-else class="w-full text-sm border-t border-white/5">
           <thead class="border-b border-white/5 text-xs uppercase tracking-wider">
             <tr>
               <th class="text-left px-5 py-3 text-gray-500">Video</th>
@@ -300,6 +457,7 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
                 @click="setSort('views')"
               >Views {{ sortIcon('views') }}</th>
               <th
+                v-if="showRevenue"
                 class="px-4 py-3 cursor-pointer select-none transition"
                 :class="sortBy === 'revenue' ? 'text-white' : 'text-gray-500 hover:text-gray-300'"
                 @click="setSort('revenue')"
@@ -322,7 +480,7 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <template v-for="(v, i) in videos" :key="v.id">
+            <template v-for="(v, i) in paginatedVideos" :key="v.id">
 
               <!-- main row -->
               <tr class="hover:bg-white/5 transition">
@@ -344,7 +502,7 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
                 </td>
                 <td class="px-4 pt-3 pb-2 text-center text-gray-400 whitespace-nowrap text-xs">{{ formatDate(v.published_at) }}</td>
                 <td class="px-4 pt-3 pb-2 text-center font-medium">{{ formatNum(v.view_count) }}</td>
-                <td class="px-4 pt-3 pb-2 text-center">
+                <td v-if="showRevenue" class="px-4 pt-3 pb-2 text-center">
                   <span v-if="v.estimated_revenue != null" class="text-emerald-400 font-medium">{{ formatMoney(v.estimated_revenue) }}</span>
                   <span v-else class="text-gray-600">—</span>
                 </td>
@@ -363,8 +521,7 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
 
               <!-- analytics sub-row — performance bar + colored chips -->
               <tr>
-                <td colspan="7" class="px-5 pb-4 pt-0">
-                  <!-- views/day performance bar -->
+                <td :colspan="showRevenue ? 7 : 6" class="px-5 pb-4 pt-0">
                   <div class="pl-[84px] pr-4 mb-2.5">
                     <div class="h-0.5 rounded-full bg-white/5 overflow-hidden">
                       <div
@@ -373,13 +530,12 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
                       ></div>
                     </div>
                   </div>
-                  <!-- colored chips -->
                   <div class="flex items-center gap-2 pl-[84px] flex-wrap">
                     <span class="bg-blue-500/10 ring-1 ring-blue-500/20 rounded-lg px-2.5 py-1 text-xs text-blue-400/80">
                       Views/day <span class="text-blue-300 font-medium ml-1">{{ formatNum(v.views_per_day) }}</span>
                     </span>
                     <span class="bg-purple-500/10 ring-1 ring-purple-500/20 rounded-lg px-2.5 py-1 text-xs text-purple-400/80">
-                      Avg watch <span class="text-purple-300 font-medium ml-1">{{ formatDuration(v.average_view_duration_seconds) }}</span>
+                      Avg watch <span class="text-purple-300 font-medium ml-1">{{ formatDuration(v.average_view_duration_seconds) }}</span><span class="text-purple-600 mx-1">/</span><span class="text-purple-400/60">{{ formatDuration(v.duration_seconds) }}</span>
                     </span>
                     <span class="bg-yellow-500/10 ring-1 ring-yellow-500/20 rounded-lg px-2.5 py-1 text-xs text-yellow-400/80">
                       CTR <span class="text-yellow-300 font-medium ml-1">{{ formatCtr(v.click_through_rate) }}</span>
@@ -396,9 +552,9 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
         </table>
 
         <!-- pagination -->
-        <div class="border-t border-white/10 bg-black/20 px-6 py-3 flex items-center justify-between">
+        <div v-if="totalPages > 1" class="border-t border-white/10 bg-black/20 px-6 py-3 flex items-center justify-between">
           <span class="text-xs text-gray-500">
-            Showing {{ (page - 1) * perPage + 1 }}–{{ Math.min(page * perPage, totalVideos) }} of {{ totalVideos }} videos
+            Showing {{ (page - 1) * perPage + 1 }}–{{ Math.min(page * perPage, totalFiltered) }} of {{ totalFiltered }} videos
           </span>
           <div class="flex items-center gap-1.5">
             <button
@@ -414,6 +570,7 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
             >Next →</button>
           </div>
         </div>
+
       </div>
 
     </main>

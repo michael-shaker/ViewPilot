@@ -107,6 +107,8 @@ interface Channel {
 
 // ── state ─────────────────────────────────────────────────────────────────────
 
+const { showRevenue, toggleRevenue } = useRevenue()
+
 const channel = ref<Channel | null>(null)
 const windowSize = ref(100)
 const tierPct = ref(10)
@@ -388,6 +390,11 @@ const heroMetrics = computed(() => {
   ].filter(m => m.hasData)
 })
 
+// filters out the revenue card when the revenue toggle is off
+const visibleHeroMetrics = computed(() =>
+  heroMetrics.value.filter(m => m.label !== 'Total Revenue' || showRevenue.value)
+)
+
 // ── title feature rows ────────────────────────────────────────────────────────
 
 // converts a percentage back to "X out of N" for clearer reading
@@ -558,12 +565,21 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
   <div class="min-h-screen text-white">
 
     <!-- nav -->
-    <header class="border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center gap-4">
-      <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm flex items-center gap-1">
-        ← Dashboard
-      </NuxtLink>
-      <span class="text-gray-600">|</span>
-      <span class="text-sm font-bold tracking-tight">ViewPilot</span>
+    <header class="border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm flex items-center gap-1">
+          ← Dashboard
+        </NuxtLink>
+        <span class="text-gray-600">|</span>
+        <span class="text-sm font-bold tracking-tight">ViewPilot</span>
+      </div>
+      <!-- revenue toggle -->
+      <button @click="toggleRevenue" class="flex items-center gap-2 group" title="Toggle revenue visibility">
+        <span class="text-xs text-gray-500 group-hover:text-gray-300 transition">Revenue</span>
+        <div class="relative w-9 h-5 rounded-full transition-colors duration-200" :class="showRevenue ? 'bg-red-500/70' : 'bg-white/15'">
+          <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200" :class="showRevenue ? 'translate-x-4' : 'translate-x-0'"></span>
+        </div>
+      </button>
     </header>
 
     <main class="max-w-6xl mx-auto px-6 py-8 space-y-6">
@@ -644,9 +660,9 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
         </div>
 
         <!-- ── hero summary ──────────────────────────────────────────────── -->
-        <div class="grid gap-4" :style="`grid-template-columns: repeat(${heroMetrics.length}, minmax(0, 1fr))`">
+        <div class="grid gap-4" :style="`grid-template-columns: repeat(${visibleHeroMetrics.length}, minmax(0, 1fr))`">
           <div
-            v-for="m in heroMetrics" :key="m.label"
+            v-for="m in visibleHeroMetrics" :key="m.label"
             class="bg-slate-900/85 ring-1 ring-white/10 rounded-2xl p-5"
           >
             <div class="text-xs uppercase tracking-widest text-gray-400 mb-4 text-center">{{ m.label }}</div>
@@ -689,7 +705,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
             <tbody class="divide-y divide-white/5">
               <!-- rows that have actual data -->
               <tr
-                v-for="m in metricRows.filter(r => r.hasData)" :key="m.key"
+                v-for="m in metricRows.filter(r => r.hasData && (r.key !== 'estimated_revenue' || showRevenue))" :key="m.key"
                 class="hover:bg-white/5 transition"
               >
                 <td class="px-6 py-3 text-gray-300">{{ m.label }}</td>
@@ -1216,7 +1232,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-emerald-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
-                <div class="w-20"><div class="text-emerald-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
+                <div v-if="showRevenue" class="w-20"><div class="text-emerald-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
                 <div class="w-24"><div class="text-emerald-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
@@ -1226,7 +1242,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
           <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
-              <span v-if="groupTotals(data.top_videos).revenue != null">Total Revenue: <span class="text-emerald-400 font-medium">{{ fmtMoney(groupTotals(data.top_videos).revenue) }}</span></span>
+              <span v-if="showRevenue && groupTotals(data.top_videos).revenue != null">Total Revenue: <span class="text-emerald-400 font-medium">{{ fmtMoney(groupTotals(data.top_videos).revenue) }}</span></span>
               <span>Total Views: <span class="text-emerald-400 font-medium">{{ fmtNumFull(groupTotals(data.top_videos).views) }}</span></span>
             </div>
           </div>
@@ -1253,7 +1269,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
                 <div class="w-16"><div class="text-blue-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-blue-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-blue-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
-                <div class="w-20"><div class="text-blue-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
+                <div v-if="showRevenue" class="w-20"><div class="text-blue-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
                 <div class="w-24"><div class="text-blue-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
@@ -1263,7 +1279,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
           <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
-              <span v-if="groupTotals(data.avg_videos).revenue != null">Total Revenue: <span class="text-blue-400 font-medium">{{ fmtMoney(groupTotals(data.avg_videos).revenue) }}</span></span>
+              <span v-if="showRevenue && groupTotals(data.avg_videos).revenue != null">Total Revenue: <span class="text-blue-400 font-medium">{{ fmtMoney(groupTotals(data.avg_videos).revenue) }}</span></span>
               <span>Total Views: <span class="text-blue-400 font-medium">{{ fmtNumFull(groupTotals(data.avg_videos).views) }}</span></span>
             </div>
           </div>
@@ -1290,7 +1306,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.avg_view_duration != null ? fmtDuration(v.avg_view_duration) : '—' }}</div><div class="text-gray-500">watch</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.ctr != null ? v.ctr.toFixed(1) + '%' : '—' }}</div><div class="text-gray-500">CTR</div></div>
                 <div class="w-16"><div class="text-red-400 font-medium">{{ v.rpm != null ? fmtMoney(v.rpm) : '—' }}</div><div class="text-gray-500">RPM</div></div>
-                <div class="w-20"><div class="text-red-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
+                <div v-if="showRevenue" class="w-20"><div class="text-red-400 font-medium">{{ v.estimated_revenue != null ? fmtMoney(v.estimated_revenue) : '—' }}</div><div class="text-gray-500">revenue</div></div>
                 <div class="w-24"><div class="text-red-400 font-medium">{{ fmtNumFull(v.view_count) }}</div><div class="text-gray-500">total views</div></div>
                 <div class="w-24 text-gray-500"><div>{{ fmtDate(v.published_at) }}</div></div>
               </div>
@@ -1300,7 +1316,7 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
           <div class="border-t border-white/10 px-4 py-3 flex items-center justify-between text-xs text-gray-400 bg-white/5">
             <span class="font-medium text-gray-300">Group totals</span>
             <div class="flex items-center gap-6">
-              <span v-if="groupTotals(data.bottom_videos).revenue != null">Total Revenue: <span class="text-red-400 font-medium">{{ fmtMoney(groupTotals(data.bottom_videos).revenue) }}</span></span>
+              <span v-if="showRevenue && groupTotals(data.bottom_videos).revenue != null">Total Revenue: <span class="text-red-400 font-medium">{{ fmtMoney(groupTotals(data.bottom_videos).revenue) }}</span></span>
               <span>Total Views: <span class="text-red-400 font-medium">{{ fmtNumFull(groupTotals(data.bottom_videos).views) }}</span></span>
             </div>
           </div>

@@ -39,7 +39,7 @@ async def list_videos(
     sort_by: str = Query(default="published_at", enum=list(SORT_COLUMNS)),
     order: str = Query(default="desc", enum=["asc", "desc"]),
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=50, ge=1, le=200),
+    per_page: int = Query(default=50, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

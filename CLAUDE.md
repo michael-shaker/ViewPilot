@@ -68,7 +68,10 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - [x] Stats history — real daily data from Analytics API, full lifetime coverage (180-day chunks), cumulative totals, today pinned at top with live stats
 - [x] Best vs Worst Autopsy — top vs bottom performer comparison page, fully built
 - [x] Revenue + RPM — pulled from Analytics API, shown in autopsy and video table
-- [ ] Dashboard enhancements (charts, sparklines, date range filters, Shorts toggle)
+- [x] Dashboard search + date range filter (client-side, covers full library, From/To dropdowns mutually constrained)
+- [x] Revenue toggle — red slider on every page, defaults OFF, persists in localStorage via useRevenue composable
+- [ ] Dashboard charts / sparklines for view trends
+- [ ] Shorts toggle (data is there, `is_short` field exists, just no UI)
 
 ### Phase 3: AI & Clustering — NOT STARTED
 - [ ] Embedding pipeline (sentence-transformers → pgvector)
@@ -409,6 +412,49 @@ docker-compose.yml → Local dev: api + db + redis
 4. Open `http://localhost:3000`
 
 **Next:** Dashboard remaining items (sparklines, filters, Shorts toggle) → Phase 3 ML pipeline
+
+### 2026-03-01 — Revenue Toggle, Search/Filter, Visual Polish
+
+**Completed:**
+- Opacity overhaul across all three pages (dashboard, video detail, autopsy) — cards changed from translucent `bg-white/10`/`bg-white/20` to solid dark `bg-slate-900/80`/`bg-slate-900/85` for readability and performance
+- `frontend/composables/useRevenue.ts` — new shared composable. `showRevenue` state lives here (defaults false), `toggleRevenue` writes to localStorage on every toggle so state persists across refreshes
+- `frontend/plugins/revenue.client.ts` — runs once on page boot, reads localStorage to restore the last revenue toggle state
+- Revenue toggle integrated on all three pages (dashboard, video detail, autopsy) — red slider in the top nav. Hides direct revenue dollar amounts; RPM stays visible. `v-if="showRevenue"` gates all revenue cells/cards. Autopsy filters hero metrics + table rows + footer spans
+- Nav polish — revenue label bumped to `text-sm text-gray-300`, username to `font-medium text-white`, logout changed from plain text link to a pill button with border/bg
+- Dashboard search + filter — loads all videos at once (`per_page=500`) into `allVideos` ref, all filtering/sorting is client-side (instant, no API calls on keypress)
+  - Title search: case-insensitive substring match
+  - From/To date dropdowns: dynamically populated from real video publish dates, ascending order (oldest→newest), mutually constrained (`fromOptions` filters to ≤ dateTo, `toOptions` filters to ≥ dateFrom)
+  - Search input and date dropdowns combined into a single row to save vertical space
+  - Active filter count + "Clear" button
+  - Empty state when no results match
+- `backend/app/api/v1/videos.py` — raised `per_page` cap from `le=200` to `le=500` (required for loading full library)
+- Avg watch time chip in dashboard sub-row now shows `4:34 / 12:30` format — watch time alongside full video duration for easy comparison without doing math
+
+**Key files modified:**
+- `frontend/composables/useRevenue.ts` — new
+- `frontend/plugins/revenue.client.ts` — new
+- `frontend/pages/dashboard.vue` — search/filter, revenue toggle, nav polish, avg watch format
+- `frontend/pages/video/[id].vue` — revenue toggle in nav
+- `frontend/pages/autopsy.vue` — revenue toggle in nav, visibleHeroMetrics computed
+- `backend/app/api/v1/videos.py` — per_page cap raised to 500
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+---
+
+## Future Ideas (not started)
+
+### Views Chart on Video Detail Page
+On the video detail page (`/video/[id]`), add an interactive chart of daily views over the video's lifetime. The key feature is a **time range scrubber at the bottom** — like a mini timeline you can drag the handles on to zoom into any window: first week, last 3 months, since the beginning, etc. The chart data already exists (the `/history` endpoint returns full daily data). Just need to pick a charting library (Chart.js or uPlot) and build the scrubber UI.
+
+### Advanced Filter Panel on Dashboard
+Add a secondary filter panel (separate from or extending the current search row) that lets you filter videos by any stat not already covered by sorting. Things like: dislike ratio, impressions, CTR, avg view duration, views per day — basically anything in the analytics sub-row. These would be range sliders (e.g. "CTR between 3% and 8%") rather than dropdowns. The data is already in `allVideos` client-side so no backend work needed — pure frontend filtering logic.
+
+---
 
 ### Next Session — Nuxt 3 Frontend (archived plan)
 

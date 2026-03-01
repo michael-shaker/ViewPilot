@@ -70,6 +70,8 @@ interface Comment {
   replies: Comment[]
 }
 
+const { showRevenue, toggleRevenue } = useRevenue()
+
 const video = ref<Video | null>(null)
 const loadError = ref<string | null>(null)
 const descExpanded = ref(false)
@@ -275,10 +277,19 @@ const historyMaxViews = computed(() =>
   <div class="min-h-screen text-white">
 
     <!-- nav -->
-    <header class="sticky top-0 z-10 border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center gap-3">
-      <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm">← Dashboard</NuxtLink>
-      <span class="text-gray-700 text-xs">|</span>
-      <span class="text-sm font-bold tracking-tight">ViewPilot</span>
+    <header class="sticky top-0 z-10 border-b border-white/10 bg-black/30 backdrop-blur-sm px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm">← Dashboard</NuxtLink>
+        <span class="text-gray-700 text-xs">|</span>
+        <span class="text-sm font-bold tracking-tight">ViewPilot</span>
+      </div>
+      <!-- revenue toggle -->
+      <button @click="toggleRevenue" class="flex items-center gap-2 group" title="Toggle revenue visibility">
+        <span class="text-xs text-gray-500 group-hover:text-gray-300 transition">Revenue</span>
+        <div class="relative w-9 h-5 rounded-full transition-colors duration-200" :class="showRevenue ? 'bg-red-500/70' : 'bg-white/15'">
+          <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200" :class="showRevenue ? 'translate-x-4' : 'translate-x-0'"></span>
+        </div>
+      </button>
     </header>
 
     <main v-if="video" class="max-w-6xl mx-auto px-6 py-8 space-y-6">
@@ -370,7 +381,7 @@ const historyMaxViews = computed(() =>
             <p class="text-2xl font-bold text-emerald-300">{{ formatMoney(video.rpm) }}</p>
             <p class="text-[11px] text-emerald-400/60 mt-1 uppercase tracking-wider">RPM</p>
           </div>
-          <div class="bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded-xl p-4 text-center">
+          <div v-if="showRevenue" class="bg-emerald-500/10 ring-1 ring-emerald-500/20 rounded-xl p-4 text-center">
             <p class="text-2xl font-bold text-emerald-300">{{ formatMoney(video.estimated_revenue) }}</p>
             <p class="text-[11px] text-emerald-400/60 mt-1 uppercase tracking-wider">Revenue</p>
           </div>
