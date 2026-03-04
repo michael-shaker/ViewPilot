@@ -282,6 +282,8 @@ const historyMaxViews = computed(() =>
         <NuxtLink to="/dashboard" class="text-gray-400 hover:text-white transition text-sm">← Dashboard</NuxtLink>
         <span class="text-gray-700 text-xs">|</span>
         <span class="text-sm font-bold tracking-tight">ViewPilot</span>
+        <span class="text-gray-700 text-xs">|</span>
+        <NuxtLink to="/autopsy" class="text-gray-600 hover:text-gray-300 transition text-xs">Autopsy</NuxtLink>
       </div>
       <!-- revenue toggle -->
       <button @click="toggleRevenue" class="flex items-center gap-2 group" title="Toggle revenue visibility">
