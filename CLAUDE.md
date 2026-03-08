@@ -71,7 +71,7 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - [x] Dashboard search + date range filter (client-side, covers full library, From/To dropdowns mutually constrained)
 - [x] Revenue toggle — red slider on every page, defaults OFF, persists in localStorage via useRevenue composable
 - [ ] Dashboard charts / sparklines for view trends
-- [ ] Shorts toggle (data is there, `is_short` field exists, just no UI)
+- [ ] ~~Shorts toggle~~ — intentionally skipped for now, not a priority while building out the core analytics features
 
 ### Phase 3: AI & Clustering — NOT STARTED
 - [ ] Embedding pipeline (sentence-transformers → pgvector)
@@ -411,7 +411,7 @@ docker-compose.yml → Local dev: api + db + redis
 3. Terminal 2: `cd frontend` then `npm run dev`
 4. Open `http://localhost:3000`
 
-**Next:** Dashboard remaining items (sparklines, filters, Shorts toggle) → Phase 3 ML pipeline
+**Next:** Dashboard remaining items (sparklines, filters) → Phase 3 ML pipeline
 
 ### 2026-03-01 — Revenue Toggle, Search/Filter, Visual Polish
 
@@ -437,6 +437,25 @@ docker-compose.yml → Local dev: api + db + redis
 - `frontend/pages/video/[id].vue` — revenue toggle in nav
 - `frontend/pages/autopsy.vue` — revenue toggle in nav, visibleHeroMetrics computed
 - `backend/app/api/v1/videos.py` — per_page cap raised to 500
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+
+### 2026-03-08 — Dashboard Loading Skeletons
+
+**Completed:**
+- `frontend/assets/css/main.css` — added `.skeleton` class + `@keyframes skeleton-shimmer`. Uses `transform: translateX()` on a `::after` pseudo-element (GPU composited, zero repaints) rather than `background-position` animation. Industry-standard approach.
+- `frontend/pages/dashboard.vue` — replaced the plain "Loading channel…" text with two proper loading skeletons:
+  - **Channel hero skeleton** — shows while the channel API call is in flight. Same gradient + purple/indigo glow blobs as the real card. Shimmer bars in exact positions of: avatar circle, channel name, "last synced" line, two action buttons (Autopsy + Sync), and all three stat mini-cards. Stat card shimmer delays stagger slightly so they cascade.
+  - **Video table skeleton** — shows after channel loads, while the 500-video fetch completes. Includes: skeleton search bar + two filter dropdowns, the indigo/purple "Videos" accent bar, dimmed-real column header labels (Video / Date / Views / RPM / Likes / Comments), then 8 full skeleton rows each with: thumbnail block → varying-width title bars → stat cell placeholders → thin performance bar → 4 analytics chip blocks. Each row's shimmer is offset by 60ms so the sweep cascades down the table.
+  - Loading states are **computed** (`isChannelLoading`, `isVideosLoading`) so clicking Sync never re-triggers skeletons — only the initial page load does.
+  - Added `videosLoaded` ref that gets set in `loadVideos` finally block to gate the table skeleton correctly.
+  - Added `skeletonTitleWidths` array with 8 varying pixel widths so title bars don't look like a uniform grid.
+
+**Shorts toggle note:** intentionally removed from the roadmap — not a priority while building out core analytics features.
 
 **How to resume (Windows):**
 1. Docker Desktop running → `docker compose up -d db redis`
