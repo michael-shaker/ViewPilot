@@ -72,6 +72,7 @@ A portfolio project: YouTube analytics platform that uses YouTube Data API v3 + 
 - [x] Revenue toggle — red slider on every page, defaults OFF, persists in localStorage via useRevenue composable
 - [ ] Dashboard charts / sparklines for view trends
 - [ ] Shorts toggle (data is there, `is_short` field exists, just no UI)
+- [ ] ~~Shorts toggle~~ — intentionally skipped for now, not a priority while building out the core analytics features
 
 ### Phase 3: AI & Clustering — NOT STARTED
 - [ ] Embedding pipeline (sentence-transformers → pgvector)
@@ -412,6 +413,7 @@ docker-compose.yml → Local dev: api + db + redis
 4. Open `http://localhost:3000`
 
 **Next:** Dashboard remaining items (sparklines, filters, Shorts toggle) → Phase 3 ML pipeline
+**Next:** Dashboard remaining items (sparklines, filters) → Phase 3 ML pipeline
 
 ### 2026-03-01 — Revenue Toggle, Search/Filter, Visual Polish
 
@@ -444,6 +446,7 @@ docker-compose.yml → Local dev: api + db + redis
 3. Terminal 2: `cd frontend` then `npm run dev`
 4. Open `http://localhost:3000`
 
+<<<<<<< HEAD
 ### 2026-03-11 — Charts Page: Full Build + Bug Fixes + Polish
 
 **Completed:**

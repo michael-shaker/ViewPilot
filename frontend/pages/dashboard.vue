@@ -46,6 +46,14 @@ const channel = ref<Channel | null>(null)
 const allVideos = ref<Video[]>([])
 const syncing = ref(false)
 const loadError = ref<string | null>(null)
+const videosLoaded = ref(false)
+
+// computed loading states — avoids re-triggering skeletons on sync
+const isChannelLoading = computed(() => channel.value === null && !loadError.value)
+const isVideosLoading  = computed(() => channel.value !== null && !videosLoaded.value && !loadError.value)
+
+// varying widths so skeleton title bars look more like real content, not a uniform grid
+const skeletonTitleWidths = ['255px', '195px', '295px', '235px', '175px', '275px', '215px', '155px']
 const syncError = ref<string | null>(null)
 const sortBy = ref('published_at')
 const order = ref('desc')
@@ -109,6 +117,8 @@ const loadVideos = async () => {
     allVideos.value = data.videos
   } catch (e) {
     loadError.value = 'failed to load videos'
+  } finally {
+    videosLoaded.value = true
   }
 }
 
@@ -365,9 +375,42 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
         {{ loadError }}
       </div>
 
-      <!-- loading state -->
-      <div v-else class="bg-slate-900/80 ring-1 ring-white/10 rounded-2xl px-8 py-16 text-center text-gray-500 text-sm">
-        Loading channel…
+      <!-- channel hero skeleton -->
+      <div v-else-if="isChannelLoading" class="relative overflow-hidden rounded-2xl ring-1 ring-white/15">
+        <!-- same gradient + glow as the real card so the transition feels seamless -->
+        <div class="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950"></div>
+        <div class="absolute -top-24 -left-12 w-80 h-80 rounded-full bg-purple-600/20 blur-3xl pointer-events-none"></div>
+        <div class="absolute -top-8 right-24 w-60 h-60 rounded-full bg-indigo-500/15 blur-3xl pointer-events-none"></div>
+        <div class="absolute bottom-0 left-1/2 w-96 h-32 rounded-full bg-indigo-800/20 blur-2xl pointer-events-none"></div>
+
+        <!-- avatar + name + buttons -->
+        <div class="relative px-8 pt-8 pb-6 flex items-center gap-6">
+          <!-- avatar circle -->
+          <div class="relative shrink-0">
+            <div class="absolute inset-0 rounded-full bg-purple-500/30 blur-xl scale-125 pointer-events-none"></div>
+            <div class="relative h-20 w-20 rounded-full skeleton"></div>
+          </div>
+
+          <!-- name + synced text -->
+          <div class="flex-1 min-w-0 flex flex-col gap-2.5">
+            <div class="h-8 w-52 skeleton rounded-lg"></div>
+            <div class="h-2.5 w-32 skeleton rounded-md"></div>
+          </div>
+
+          <!-- button placeholders -->
+          <div class="flex items-center gap-3 shrink-0">
+            <div class="h-12 w-28 skeleton rounded-xl"></div>
+            <div class="h-12 w-24 skeleton rounded-xl"></div>
+          </div>
+        </div>
+
+        <!-- stat mini-card skeletons -->
+        <div class="relative px-8 pb-8 grid grid-cols-3 gap-3">
+          <div v-for="n in 3" :key="n" class="bg-white/5 rounded-xl p-5 ring-1 ring-white/10 flex flex-col gap-3">
+            <div class="h-9 w-28 skeleton rounded-md" :style="{ animationDelay: (n * 0.08) + 's' }"></div>
+            <div class="h-2.5 w-20 skeleton rounded-sm" :style="{ animationDelay: (n * 0.08 + 0.05) + 's' }"></div>
+          </div>
+        </div>
       </div>
 
       <!-- video table — only shows once all videos are loaded -->
@@ -575,6 +618,88 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
           </div>
         </div>
 
+      </div>
+
+      <!-- video table skeleton — shows after channel loads but before videos arrive -->
+      <div v-if="isVideosLoading" class="bg-slate-900/80 ring-1 ring-white/15 rounded-2xl overflow-hidden">
+
+        <!-- search + filter bar placeholders -->
+        <div class="px-5 pt-5 pb-4 flex items-center gap-3">
+          <div class="h-9 flex-1 skeleton rounded-xl"></div>
+          <div class="h-9 w-28 skeleton rounded-lg"></div>
+          <div class="h-9 w-28 skeleton rounded-lg"></div>
+        </div>
+
+        <!-- "Videos" header strip -->
+        <div class="border-t border-white/5 px-6 py-3 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-1 h-4 rounded-full bg-gradient-to-b from-indigo-400 to-purple-500"></div>
+            <div class="h-2.5 w-14 skeleton rounded-sm"></div>
+          </div>
+          <div class="h-2.5 w-16 skeleton rounded-sm"></div>
+        </div>
+
+        <!-- column header labels (dimmed real text so the layout reads naturally) -->
+        <div class="border-t border-white/5 px-5 py-3 flex items-center gap-4 text-[10px] uppercase tracking-wider text-gray-700 select-none">
+          <div class="flex-1">Video</div>
+          <div class="w-24 text-center">Date</div>
+          <div class="w-16 text-center">Views</div>
+          <div class="w-16 text-center">RPM</div>
+          <div class="w-16 text-center">Likes</div>
+          <div class="w-16 text-center">Comments</div>
+        </div>
+
+        <!-- skeleton rows — 8 rows with staggered shimmer delays -->
+        <div class="divide-y divide-white/5">
+          <div v-for="n in 8" :key="n" class="border-t border-white/5">
+
+            <!-- main row -->
+            <div class="px-5 pt-3 pb-2 flex items-center gap-4">
+              <div
+                class="h-11 w-[72px] rounded-lg skeleton shrink-0"
+                :style="{ animationDelay: (n * 0.06) + 's' }"
+              ></div>
+              <div class="flex flex-col gap-1.5 flex-1 min-w-0">
+                <div
+                  class="h-[15px] skeleton rounded-md"
+                  :style="{ width: skeletonTitleWidths[n - 1], animationDelay: (n * 0.06 + 0.04) + 's' }"
+                ></div>
+                <div
+                  class="h-2.5 w-20 skeleton rounded-sm"
+                  :style="{ animationDelay: (n * 0.06 + 0.08) + 's' }"
+                ></div>
+              </div>
+              <!-- stat cell placeholders -->
+              <div v-for="c in 5" :key="c" class="shrink-0 flex justify-center" :class="c === 1 ? 'w-24' : 'w-16'">
+                <div
+                  class="h-4 skeleton rounded-md"
+                  :class="c === 1 ? 'w-16' : 'w-10'"
+                  :style="{ animationDelay: (n * 0.06 + c * 0.04) + 's' }"
+                ></div>
+              </div>
+            </div>
+
+            <!-- analytics sub-row -->
+            <div class="px-5 pb-4 pt-0">
+              <!-- performance bar -->
+              <div class="pl-[84px] pr-4 mb-2.5">
+                <div
+                  class="h-0.5 w-full skeleton rounded-full"
+                  :style="{ animationDelay: (n * 0.06 + 0.1) + 's' }"
+                ></div>
+              </div>
+              <!-- chip row -->
+              <div class="flex items-center gap-2 pl-[84px]">
+                <div
+                  v-for="c in 4" :key="c"
+                  class="h-7 w-24 skeleton rounded-lg"
+                  :style="{ animationDelay: (n * 0.06 + c * 0.05) + 's' }"
+                ></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
       </div>
 
     </main>
