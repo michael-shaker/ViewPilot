@@ -326,6 +326,10 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
 
           <div class="flex items-center gap-3 shrink-0">
             <NuxtLink
+              to="/charts"
+              class="border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/30 hover:border-indigo-400/60 active:scale-95 px-8 py-3.5 rounded-xl text-base font-semibold text-indigo-300 hover:text-indigo-200 transition"
+            >Charts</NuxtLink>
+            <NuxtLink
               to="/autopsy"
               class="border border-purple-500/40 bg-purple-500/15 hover:bg-purple-500/30 hover:border-purple-400/60 active:scale-95 px-8 py-3.5 rounded-xl text-base font-semibold text-purple-300 hover:text-purple-200 transition"
             >Autopsy</NuxtLink>

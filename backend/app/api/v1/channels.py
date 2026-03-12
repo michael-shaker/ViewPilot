@@ -59,6 +59,9 @@ async def trigger_sync(
     # delete video list cache pages (covers common page/sort combos)
     async for key in redis.scan_iter(f"vlist:{channel_id}:*"):
         await redis.delete(key)
+    # delete charts cache (all granularities)
+    for granularity in ["daily", "weekly", "monthly"]:
+        await redis.delete(f"charts:{channel_id}:{granularity}")
 
     return {
         "ok": True,

@@ -1,14 +1,14 @@
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.channels import Channel
-from app.models.stats import VideoAnalytics, VideoStats
+from app.models.stats import ChannelDailyStats, VideoAnalytics, VideoStats
 from app.models.users import User
 from app.models.videos import Video
 from app.services import youtube as yt
@@ -199,6 +199,111 @@ async def _sync_analytics(
         print(f"reach reports step skipped: {exc}")
 
 
+async def _sync_channel_history(
+    db: AsyncSession,
+    access_token: str,
+    refresh_token: str | None,
+    channel: Channel,
+) -> None:
+    """fetch and store daily channel-level analytics going all the way back to channel launch.
+    on the very first run this pulls the full history — could be years of data.
+    on subsequent runs it only refreshes the last 60 days (youtube revises recent numbers)."""
+
+    today = datetime.now(UTC).date()
+
+    # check how many daily rows we already have for this channel
+    existing_count = await db.scalar(
+        select(func.count()).select_from(ChannelDailyStats).where(
+            ChannelDailyStats.channel_id == channel.id
+        )
+    )
+
+    if existing_count == 0:
+        # first ever run — pull from channel launch date (youtube analytics starts ~2015 at earliest)
+        channel_start = channel.published_at.date() if channel.published_at else date(2015, 1, 1)
+        start = max(channel_start, date(2015, 1, 1))
+        print(f"channel history: first run — fetching {start} → {today} (this may take a moment)")
+    else:
+        # incremental — just refresh the last 60 days to catch any youtube data revisions
+        start = today - timedelta(days=60)
+        print(f"channel history: incremental update {start} → {today}")
+
+    # fetch core metrics + reach (impressions/ctr) in one batch of 180-day chunks
+    try:
+        daily_rows = await yt.get_channel_daily_stats(access_token, refresh_token, start, today)
+    except Exception as e:
+        print(f"channel history: core stats fetch failed, skipping: {e}")
+        return
+
+    if not daily_rows:
+        print("channel history: no data returned from analytics api")
+        return
+
+    # fetch revenue separately — requires monetary scope, gracefully skipped if not granted
+    revenue_by_date: dict[str, dict] = {}
+    try:
+        revenue_by_date = await yt.get_channel_daily_revenue(access_token, refresh_token, start, today)
+        if revenue_by_date:
+            print(f"channel history: revenue data available for {len(revenue_by_date)} days")
+    except Exception as e:
+        print(f"channel history: revenue skipped: {e}")
+
+    # upsert every daily row — conflict on (channel_id, date) updates the existing row
+    for row in daily_rows:
+        day_str = row.get("day")
+        if not day_str:
+            continue
+
+        day = date.fromisoformat(day_str)
+        rev = revenue_by_date.get(day_str, {})
+
+        # impressionsClickThroughRate from the api is a 0–1 decimal fraction
+        # (the api docs say "expressed as a percentage" but actually returns a decimal)
+        # we normalize: if it came back > 1 (old api behaviour), divide by 100
+        raw_ctr = _safe_float(row.get("impressionsClickThroughRate"))
+        if raw_ctr is not None and raw_ctr > 1:
+            raw_ctr = raw_ctr / 100
+
+        stmt = (
+            pg_insert(ChannelDailyStats)
+            .values(
+                id=uuid.uuid4(),
+                channel_id=channel.id,
+                date=day,
+                views=_safe_int(row.get("views")),
+                estimated_minutes_watched=_safe_float(row.get("estimatedMinutesWatched")),
+                average_view_duration_seconds=_safe_float(row.get("averageViewDuration")),
+                likes=_safe_int(row.get("likes")),
+                comments=_safe_int(row.get("comments")),
+                subscribers_gained=_safe_int(row.get("subscribersGained")),
+                subscribers_lost=_safe_int(row.get("subscribersLost")),
+                impressions=_safe_int(row.get("impressions")),
+                click_through_rate=raw_ctr,
+                estimated_revenue=_safe_float(rev.get("estimatedRevenue")),
+                fetched_at=_utcnow(),
+            )
+            .on_conflict_do_update(
+                constraint="uq_channel_daily_stats_channel_date",
+                set_={
+                    "views": _safe_int(row.get("views")),
+                    "estimated_minutes_watched": _safe_float(row.get("estimatedMinutesWatched")),
+                    "average_view_duration_seconds": _safe_float(row.get("averageViewDuration")),
+                    "likes": _safe_int(row.get("likes")),
+                    "comments": _safe_int(row.get("comments")),
+                    "subscribers_gained": _safe_int(row.get("subscribersGained")),
+                    "subscribers_lost": _safe_int(row.get("subscribersLost")),
+                    "impressions": _safe_int(row.get("impressions")),
+                    "click_through_rate": raw_ctr,
+                    "estimated_revenue": _safe_float(rev.get("estimatedRevenue")),
+                    "fetched_at": _utcnow(),
+                },
+            )
+        )
+        await db.execute(stmt)
+
+    print(f"channel history: saved {len(daily_rows)} daily rows")
+
+
 async def sync_channel(db: AsyncSession, user: User) -> Channel:
     """full sync for a user's youtube channel.
     fetches channel info, all videos, and saves a stats snapshot for each."""
@@ -319,12 +424,20 @@ async def sync_channel(db: AsyncSession, user: User) -> Channel:
             )
             db.add(snapshot)
 
-    # ── step 4: fetch analytics api data ─────────────────────────────────────
+    # ── step 4: fetch per-video analytics api data ───────────────────────────
     # wrapped in try/except — if analytics fail, the video sync still succeeds
     try:
         await _sync_analytics(db, access_token, refresh_token, channel)
     except Exception as exc:
         print(f"analytics sync skipped: {exc}")
+
+    # ── step 5: fetch daily channel history for the charts page ──────────────
+    # on first run this pulls the full channel history back to launch date.
+    # on subsequent runs it only refreshes the last 60 days.
+    try:
+        await _sync_channel_history(db, access_token, refresh_token, channel)
+    except Exception as exc:
+        print(f"channel history sync skipped: {exc}")
 
     await db.commit()
     await db.refresh(channel)

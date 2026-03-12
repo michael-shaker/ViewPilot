@@ -572,6 +572,8 @@ const impressionsBotBar = computed(() => barPct(data.value?.key_metrics.impressi
         </NuxtLink>
         <span class="text-gray-600">|</span>
         <span class="text-sm font-bold tracking-tight">ViewPilot</span>
+        <span class="text-gray-600">|</span>
+        <NuxtLink to="/charts" class="text-gray-500 hover:text-gray-300 transition text-sm">Charts</NuxtLink>
       </div>
       <!-- revenue toggle -->
       <button @click="toggleRevenue" class="flex items-center gap-2 group" title="Toggle revenue visibility">

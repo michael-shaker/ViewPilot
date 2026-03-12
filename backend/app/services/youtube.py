@@ -367,6 +367,107 @@ async def get_video_comments(
     return all_comments
 
 
+async def get_channel_daily_stats(
+    access_token: str,
+    refresh_token: str | None,
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
+    """fetch daily channel-level analytics from the analytics api (dimensions=day).
+    returns one dict per calendar day with views, watch time, engagement, and optionally
+    reach (impressions/ctr) if those metrics are available for the requested date range.
+    fetches in 180-day chunks to stay within api row limits."""
+    analytics = _build_analytics_client(access_token, refresh_token)
+    all_rows: list[dict] = []
+
+    # try the full metric set first; if the api rejects it (impressions not available
+    # for older dates or missing scope), fall back to core metrics only
+    full_metrics = (
+        "views,estimatedMinutesWatched,averageViewDuration,"
+        "likes,comments,subscribersGained,subscribersLost,"
+        "impressions,impressionsClickThroughRate"
+    )
+    core_metrics = (
+        "views,estimatedMinutesWatched,averageViewDuration,"
+        "likes,comments,subscribersGained,subscribersLost"
+    )
+
+    chunk_start = start_date
+    while chunk_start <= end_date:
+        chunk_end = min(chunk_start + timedelta(days=179), end_date)
+
+        # try with reach metrics, fall back to core-only if rejected
+        for metrics_attempt in [full_metrics, core_metrics]:
+            try:
+                response = await _run(
+                    analytics.reports().query(
+                        ids="channel==MINE",
+                        startDate=chunk_start.isoformat(),
+                        endDate=chunk_end.isoformat(),
+                        dimensions="day",
+                        metrics=metrics_attempt,
+                        maxResults=200,
+                    ).execute
+                )
+                rows = response.get("rows") or []
+                if rows:
+                    headers = [h["name"] for h in response["columnHeaders"]]
+                    for row in rows:
+                        all_rows.append(dict(zip(headers, row)))
+                break  # success — no need to try the fallback
+            except Exception as e:
+                if metrics_attempt == full_metrics:
+                    # impressions metrics might not be available, retry without them
+                    print(f"channel daily stats: reach metrics failed for {chunk_start}–{chunk_end}, retrying core only: {e}")
+                    continue
+                else:
+                    print(f"channel daily stats: chunk {chunk_start}–{chunk_end} failed: {e}")
+                    break
+
+        chunk_start = chunk_end + timedelta(days=1)
+
+    return all_rows
+
+
+async def get_channel_daily_revenue(
+    access_token: str,
+    refresh_token: str | None,
+    start_date: date,
+    end_date: date,
+) -> dict[str, dict]:
+    """fetch daily channel-level revenue. requires yt-analytics-monetary.readonly scope.
+    returns a dict keyed by date string 'YYYY-MM-DD'. returns {} gracefully if unavailable."""
+    analytics = _build_analytics_client(access_token, refresh_token)
+    results: dict[str, dict] = {}
+
+    chunk_start = start_date
+    while chunk_start <= end_date:
+        chunk_end = min(chunk_start + timedelta(days=179), end_date)
+        try:
+            response = await _run(
+                analytics.reports().query(
+                    ids="channel==MINE",
+                    startDate=chunk_start.isoformat(),
+                    endDate=chunk_end.isoformat(),
+                    dimensions="day",
+                    metrics="estimatedRevenue",
+                    maxResults=200,
+                ).execute
+            )
+            rows = response.get("rows") or []
+            if rows:
+                headers = [h["name"] for h in response["columnHeaders"]]
+                for row in rows:
+                    d = dict(zip(headers, row))
+                    results[d["day"]] = d
+        except Exception as e:
+            print(f"channel daily revenue: chunk {chunk_start}–{chunk_end} failed: {e}")
+
+        chunk_start = chunk_end + timedelta(days=1)
+
+    return results
+
+
 async def ensure_reach_job(access_token: str, refresh_token: str | None) -> str:
     """find an existing reach reporting job or create one if none exists.
     this only needs to happen once ever — after that google keeps generating

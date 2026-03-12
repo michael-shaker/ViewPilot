@@ -444,6 +444,47 @@ docker-compose.yml → Local dev: api + db + redis
 3. Terminal 2: `cd frontend` then `npm run dev`
 4. Open `http://localhost:3000`
 
+### 2026-03-11 — Charts Page: Full Build + Bug Fixes + Polish
+
+**Completed:**
+- `backend/app/models/stats.py` — added `ChannelDailyStats` model (one row per channel per calendar day: views, watch time, avg view duration, likes, comments, subscribers gained/lost, impressions, CTR, revenue)
+- `backend/alembic/versions/e7a1c3d4f2b8_add_channel_daily_stats.py` — migration for new table, ran successfully
+- `backend/app/services/youtube.py` — added `get_channel_daily_stats()` (fetches real daily channel metrics via Analytics API `dimensions="day"`, in 180-day chunks, tries full reach metrics then falls back to core if rejected) and `get_channel_daily_revenue()` (separate revenue fetch, returns {} gracefully if scope not granted)
+- `backend/app/services/sync.py` — added `_sync_channel_history()`: first run fetches full history from channel launch date (capped at 2015-01-01); subsequent runs refresh only the last 60 days (YouTube revises recent data). Upserts via `pg_insert(...).on_conflict_do_update(...)` on `uq_channel_daily_stats_channel_date` constraint. Normalizes CTR from percentage to 0–1 fraction on write if needed.
+- `backend/app/api/v1/charts.py` — new endpoint `GET /charts/channel?channel_id=&granularity=`. Queries `channel_daily_stats` grouped by day/week/month. Returns dates array + metrics dict (views, watch_time_minutes, impressions, ctr, likes, comments, subscribers_gained, revenue, rpm, avg_view_duration). Cached 30 min in Redis.
+- `backend/app/api/v1/__init__.py` — registered charts router
+- `backend/app/api/v1/channels.py` — added charts cache busting on sync (all granularities)
+- `frontend/plugins/apexcharts.client.ts` — registers vue3-apexcharts globally (client-only)
+- `frontend/pages/charts.vue` — full Social Blade-style charts page. ApexCharts with brush scrubber, 10 metric pills (Views/Watch Time/Impressions/CTR/Likes/Comments/Subscribers/Revenue/RPM/Avg Watch Time), Daily/Weekly/Monthly granularity, Area/Line toggle, Normalize mode, 7D/30D/90D/6M/1Y/All quick range buttons, summary cards, revenue toggle gating.
+- Charts nav links added to dashboard, autopsy, and video detail pages
+
+**Critical bug fixed:**
+- Root cause of blank chart: `brush.selection.xaxis` was `{}` on first render (because `visibleMin/Max` refs were undefined). ApexCharts interprets an empty brush selection as "show nothing" in the linked main chart. Fixed by computing a default selection from the actual data (last 90 days) inside `brushChartOptions` whenever `visibleMin/Max` are not yet set.
+
+**Architecture of charts page:**
+- `visibleMin/Max` refs track the currently visible date window
+- `brushChartOptions.chart.events.selection` fires on brush drag → updates `visibleMin/Max` → `metricTotals` recomputes (filters to visible indices) → summary cards update
+- `mainChartOptions.xaxis.min/max` bound to `visibleMin/Max` → main chart zooms reactively
+- `applyQuickRange(days)` sets `visibleMin/Max` for button clicks; both paths flow through same refs
+
+**Key files created/modified:**
+- `backend/app/models/stats.py` — ChannelDailyStats added
+- `backend/alembic/versions/e7a1c3d4f2b8_add_channel_daily_stats.py` — new
+- `backend/app/services/youtube.py` — daily stats + revenue fetch added
+- `backend/app/services/sync.py` — `_sync_channel_history()` added
+- `backend/app/api/v1/charts.py` — new
+- `frontend/plugins/apexcharts.client.ts` — new
+- `frontend/pages/charts.vue` — new
+
+**Charts page improvements (same session):**
+- `contentRange` computed: finds first/last day with non-zero views, used to clip the scrubber X-axis so dead zones before/after content are hidden
+- Y-axis: `fmtAxis(v, key)` helper formats all tick labels as "1.2M", "340K", "$4", "3.5%", "4:30" etc. — no trailing ".0", no raw integers. Added `tickAmount: 6, forceNiceScale: true` to prevent tick clutter
+- Custom date range picker: "Custom range" button opens inline date-from/to inputs; applies to both the main chart zoom and the summary cards
+- Video upload annotations: fetches video list (title + published_at) in parallel with chart data; renders subtle vertical lines at each upload date in the chart; tooltip shows video titles when hovering a day a video was published
+- Custom tooltip: replaced ApexCharts' built-in shared tooltip with a fully custom one — shows formatted metric values for each selected series + "Uploaded" section with video titles for that date
+- Scrubber visual differentiation: `bg-black/30`, `border-dashed border-slate-800`, left accent stripe `border-l-2 border-l-indigo-500/20` — clearly distinct from the main chart card above
+- `visibleRangeLabel` shows the human-readable selected window ("Mar 1, 2024 → Mar 11, 2025") in the scrubber header
+
 ---
 
 ## Future Ideas (not started)

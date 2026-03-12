@@ -283,6 +283,8 @@ const historyMaxViews = computed(() =>
         <span class="text-gray-700 text-xs">|</span>
         <span class="text-sm font-bold tracking-tight">ViewPilot</span>
         <span class="text-gray-700 text-xs">|</span>
+        <NuxtLink to="/charts" class="text-gray-600 hover:text-gray-300 transition text-xs">Charts</NuxtLink>
+        <span class="text-gray-700 text-xs">|</span>
         <NuxtLink to="/autopsy" class="text-gray-600 hover:text-gray-300 transition text-xs">Autopsy</NuxtLink>
       </div>
       <!-- revenue toggle -->

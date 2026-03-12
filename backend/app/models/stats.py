@@ -59,3 +59,33 @@ class VideoAnalytics(Base):
     rpm: Mapped[float | None] = mapped_column(sa.Float)
     cpm: Mapped[float | None] = mapped_column(sa.Float)
     fetched_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
+
+
+class ChannelDailyStats(Base):
+    """real daily channel totals fetched from the analytics api with dimensions=day.
+    one row per channel per calendar day — the source of truth for the charts page."""
+
+    __tablename__ = "channel_daily_stats"
+
+    __table_args__ = (
+        sa.UniqueConstraint("channel_id", "date", name="uq_channel_daily_stats_channel_date"),
+        sa.Index("ix_channel_daily_stats_channel_date", "channel_id", "date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid.uuid4)
+    channel_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, sa.ForeignKey("channels.id", ondelete="CASCADE"))
+    date: Mapped[date] = mapped_column(sa.Date)
+    # core metrics — always available
+    views: Mapped[int | None] = mapped_column(sa.Integer)
+    estimated_minutes_watched: Mapped[float | None] = mapped_column(sa.Float)
+    average_view_duration_seconds: Mapped[float | None] = mapped_column(sa.Float)
+    likes: Mapped[int | None] = mapped_column(sa.Integer)
+    comments: Mapped[int | None] = mapped_column(sa.Integer)
+    subscribers_gained: Mapped[int | None] = mapped_column(sa.Integer)
+    subscribers_lost: Mapped[int | None] = mapped_column(sa.Integer)
+    # reach metrics — available from ~2018 onwards, stored as 0–1 fraction
+    impressions: Mapped[int | None] = mapped_column(sa.Integer)
+    click_through_rate: Mapped[float | None] = mapped_column(sa.Float)
+    # revenue — requires yt-analytics-monetary.readonly scope
+    estimated_revenue: Mapped[float | None] = mapped_column(sa.Float)
+    fetched_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow)
