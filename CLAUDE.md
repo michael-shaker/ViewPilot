@@ -487,6 +487,26 @@ docker-compose.yml → Local dev: api + db + redis
 - Custom tooltip: replaced ApexCharts' built-in shared tooltip with a fully custom one — shows formatted metric values for each selected series + "Uploaded" section with video titles for that date
 - Scrubber visual differentiation: `bg-black/30`, `border-dashed border-slate-800`, left accent stripe `border-l-2 border-l-indigo-500/20` — clearly distinct from the main chart card above
 - `visibleRangeLabel` shows the human-readable selected window ("Mar 1, 2024 → Mar 11, 2025") in the scrubber header
+=======
+### 2026-03-08 — Dashboard Loading Skeletons
+
+**Completed:**
+- `frontend/assets/css/main.css` — added `.skeleton` class + `@keyframes skeleton-shimmer`. Uses `transform: translateX()` on a `::after` pseudo-element (GPU composited, zero repaints) rather than `background-position` animation. Industry-standard approach.
+- `frontend/pages/dashboard.vue` — replaced the plain "Loading channel…" text with two proper loading skeletons:
+  - **Channel hero skeleton** — shows while the channel API call is in flight. Same gradient + purple/indigo glow blobs as the real card. Shimmer bars in exact positions of: avatar circle, channel name, "last synced" line, two action buttons (Autopsy + Sync), and all three stat mini-cards. Stat card shimmer delays stagger slightly so they cascade.
+  - **Video table skeleton** — shows after channel loads, while the 500-video fetch completes. Includes: skeleton search bar + two filter dropdowns, the indigo/purple "Videos" accent bar, dimmed-real column header labels (Video / Date / Views / RPM / Likes / Comments), then 8 full skeleton rows each with: thumbnail block → varying-width title bars → stat cell placeholders → thin performance bar → 4 analytics chip blocks. Each row's shimmer is offset by 60ms so the sweep cascades down the table.
+  - Loading states are **computed** (`isChannelLoading`, `isVideosLoading`) so clicking Sync never re-triggers skeletons — only the initial page load does.
+  - Added `videosLoaded` ref that gets set in `loadVideos` finally block to gate the table skeleton correctly.
+  - Added `skeletonTitleWidths` array with 8 varying pixel widths so title bars don't look like a uniform grid.
+
+**Shorts toggle note:** intentionally removed from the roadmap — not a priority while building out core analytics features.
+
+**How to resume (Windows):**
+1. Docker Desktop running → `docker compose up -d db redis`
+2. Terminal 1: `cd backend` then `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app`
+3. Terminal 2: `cd frontend` then `npm run dev`
+4. Open `http://localhost:3000`
+>>>>>>> 0ce2269460e086431132d2af1bb991755ab0cd79
 
 ---
 
