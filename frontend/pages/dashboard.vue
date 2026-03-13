@@ -58,7 +58,7 @@ const syncError = ref<string | null>(null)
 const sortBy = ref('published_at')
 const order = ref('desc')
 const page = ref(1)
-const perPage = 20
+const perPage = 25
 
 // filter state
 const searchQuery = ref('')
@@ -235,8 +235,8 @@ const nextPage = () => { if (page.value < totalPages.value) page.value++ }
 
 const formatNum = (n: number | null) => {
   if (n == null) return '—'
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K'
   return n.toLocaleString()
 }
 
@@ -299,7 +299,7 @@ const likeRatioMap = computed<Record<string, string | null>>(() => {
         </button>
         <div class="w-px h-4 bg-white/10"></div>
         <div class="flex items-center gap-2.5">
-          <img v-if="user?.picture_url" :src="user.picture_url" class="h-8 w-8 rounded-full ring-1 ring-white/20" />
+          <img v-if="user?.picture_url" :src="user.picture_url" referrerpolicy="no-referrer" class="h-8 w-8 rounded-full ring-1 ring-white/20" @error="(e) => (e.target as HTMLImageElement).style.display = 'none'" />
           <span class="text-sm font-medium text-white">{{ user?.name }}</span>
         </div>
         <div class="w-px h-4 bg-white/10"></div>

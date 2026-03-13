@@ -152,18 +152,9 @@ const activeQuickRange = ref('90D')
 const visibleMin = ref<number | undefined>(undefined)
 const visibleMax = ref<number | undefined>(undefined)
 
-// custom date range picker
-const showCustomRange = ref(false)
-const customDateFrom = ref('')
-const customDateTo = ref('')
-
-// pre-fill the date inputs whenever the picker opens
-watch(showCustomRange, (open) => {
-  if (open && visibleMin.value && visibleMax.value) {
-    customDateFrom.value = new Date(visibleMin.value).toISOString().split('T')[0]
-    customDateTo.value   = new Date(visibleMax.value).toISOString().split('T')[0]
-  }
-})
+// month-based from/to selectors in the controls row
+const selectedFrom = ref('')
+const selectedTo = ref('')
 
 // ─── content range ────────────────────────────────────────────────────────
 // clips the scrubber to the stretch where there's actually non-zero views data,
@@ -294,18 +285,63 @@ function applyQuickRange(days: number | null) {
     visibleMax.value = dataMax
     activeQuickRange.value = quickRanges.find(r => r.days === days)?.label ?? activeQuickRange.value
   }
-  showCustomRange.value = false
+  // clear the dropdown selectors so they don't show stale values
+  selectedFrom.value = ''
+  selectedTo.value = ''
 }
 
-function applyCustomRange() {
-  if (!customDateFrom.value || !customDateTo.value) return
-  const from = new Date(customDateFrom.value + 'T00:00:00').getTime()
-  const to   = new Date(customDateTo.value   + 'T23:59:59').getTime()
-  if (isNaN(from) || isNaN(to) || from >= to) return
-  visibleMin.value = from
-  visibleMax.value = to
-  activeQuickRange.value = 'Custom'
-  showCustomRange.value = false
+// month options derived from the actual data — used by the from/to dropdowns
+const monthOptions = computed(() => {
+  if (!chartData.value?.dates?.length) return []
+  const seen = new Set<string>()
+  const opts: { value: string; label: string }[] = []
+  for (const d of chartData.value.dates) {
+    const m = d.slice(0, 7)
+    if (!seen.has(m)) {
+      seen.add(m)
+      // use day 2 to avoid DST edge cases that could shift the month
+      opts.push({ value: m, label: new Date(m + '-02').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) })
+    }
+  }
+  return opts
+})
+
+const fromOptions = computed(() =>
+  selectedTo.value ? monthOptions.value.filter(o => o.value <= selectedTo.value) : monthOptions.value
+)
+
+const toOptions = computed(() =>
+  selectedFrom.value ? monthOptions.value.filter(o => o.value >= selectedFrom.value) : monthOptions.value
+)
+
+function onFromChange() {
+  if (!selectedFrom.value || !chartData.value?.dates) return
+  activeQuickRange.value = ''
+  const fromMs = new Date(selectedFrom.value + '-01T00:00:00').getTime()
+  const timestamps = chartData.value.dates.map(d => new Date(d + 'T00:00:00').getTime())
+  const idx = timestamps.findIndex(t => t >= fromMs)
+  if (idx >= 0) {
+    visibleMin.value = timestamps[idx]
+    if (visibleMax.value == null) visibleMax.value = contentRange.value?.max
+  }
+}
+
+function onToChange() {
+  if (!selectedTo.value || !chartData.value?.dates) return
+  activeQuickRange.value = ''
+  const parts = selectedTo.value.split('-')
+  let yr = parseInt(parts[0]), mo = parseInt(parts[1]) + 1
+  if (mo > 12) { mo = 1; yr++ }
+  const endMs = new Date(`${yr}-${String(mo).padStart(2, '0')}-01T00:00:00`).getTime()
+  const timestamps = chartData.value.dates.map(d => new Date(d + 'T00:00:00').getTime())
+  let lastIdx = -1
+  for (let i = timestamps.length - 1; i >= 0; i--) {
+    if (timestamps[i] < endMs) { lastIdx = i; break }
+  }
+  if (lastIdx >= 0) {
+    visibleMax.value = timestamps[lastIdx]
+    if (visibleMin.value == null) visibleMin.value = contentRange.value?.min
+  }
 }
 
 // ─── series computation ────────────────────────────────────────────────────
@@ -333,11 +369,6 @@ const displaySeries = computed(() => {
       ] as [number, number | null]),
     }
   })
-})
-
-const brushSeries = computed(() => {
-  if (!rawSeries.value.length) return []
-  return [{ ...rawSeries.value[0], name: rawSeries.value[0].name }]
 })
 
 const chartColors = computed(() => selectedMetrics.value.map(k => METRICS_CONFIG[k].color))
@@ -505,70 +536,127 @@ const mainChartOptions = computed(() => ({
   noData: { text: 'No analytics data yet', style: { color: '#64748b', fontSize: '13px' } },
 }))
 
-// ─── brush chart options ───────────────────────────────────────────────────
-const brushChartOptions = computed(() => {
-  // clip to actual content (non-zero views) so the scrubber doesn't show dead zones
+// ─── custom date range slider ───────────────────────────────────────────────
+// replaces the old apexcharts brush: a thin draggable track with two handles
+
+const sliderEl = ref<HTMLDivElement | null>(null)
+type DragMode = 'left' | 'right' | 'pan' | null
+const dragMode = ref<DragMode>(null)
+
+// video dot tooltip state
+const hoveredVideo = ref<{ title: string; date: string; pct: number } | null>(null)
+const dragStartX = ref(0)
+const dragStartMin = ref(0)
+const dragStartMax = ref(0)
+
+// percentage positions of the two handles (0–100)
+const sliderLeft = computed(() => {
   const cr = contentRange.value
-  const dataMin = cr?.min ?? Date.now() - 90 * 86_400_000
-  const dataMax = cr?.max ?? Date.now()
+  if (!cr || visibleMin.value == null) return 0
+  return Math.max(0, Math.min(100, ((visibleMin.value - cr.min) / (cr.max - cr.min)) * 100))
+})
 
-  const selMin = visibleMin.value ?? Math.max(dataMin, dataMax - 90 * 86_400_000)
-  const selMax = visibleMax.value ?? dataMax
+const sliderRight = computed(() => {
+  const cr = contentRange.value
+  if (!cr || visibleMax.value == null) return 100
+  return Math.max(0, Math.min(100, ((visibleMax.value - cr.min) / (cr.max - cr.min)) * 100))
+})
 
-  return {
-    chart: {
-      id: 'brush-chart',
-      type: 'area',
-      background: 'transparent',
-      foreColor: '#475569',
-      brush: { target: 'main-chart', enabled: true },
-      selection: {
-        enabled: true,
-        fill: { color: '#6366f1', opacity: 0.12 },
-        stroke: { width: 1, color: '#6366f1', opacity: 0.6, dashArray: 0 },
-        xaxis: { min: selMin, max: selMax },
-      },
-      events: {
-        selection: (_ctx: unknown, { xaxis }: { xaxis: { min: number; max: number } }) => {
-          visibleMin.value = xaxis.min
-          visibleMax.value = xaxis.max
-          activeQuickRange.value = ''
-        },
-      },
-      animations: { enabled: false },
-      toolbar: { show: false },
-      zoom: { enabled: false },
-      fontFamily: 'inherit',
-    },
-    theme: { mode: 'dark' },
-    colors: [chartColors.value[0] ?? '#6366f1'],
-    stroke: { width: 1.5, curve: 'smooth' as const },
-    fill: { type: 'solid', opacity: 0.06 },
-    dataLabels: { enabled: false },
-    markers: { size: 0 },
-    xaxis: {
-      type: 'datetime' as const,
-      // clip the scrubber's visible range to where content actually exists
-      min: dataMin,
-      max: dataMax,
-      labels: {
-        style: { colors: '#334155', fontSize: '10px' },
-        datetimeUTC: false,
-        datetimeFormatter: { year: 'yyyy', month: "MMM 'yy", day: 'dd MMM' },
-      },
-      axisBorder: { show: false },
-      axisTicks: { show: false },
-      tooltip: { enabled: false },
-    },
-    yaxis: { show: false, min: 0 },
-    grid: {
-      borderColor: 'transparent',
-      padding: { top: 0, right: 0, bottom: 0, left: 0 },
-      xaxis: { lines: { show: false } },
-      yaxis: { lines: { show: false } },
-    },
-    tooltip: { enabled: false },
+const sliderWidth = computed(() => Math.max(0.5, sliderRight.value - sliderLeft.value))
+
+// year-boundary ticks to show below the track
+const yearTicks = computed(() => {
+  const cr = contentRange.value
+  if (!cr) return []
+  const startYear = new Date(cr.min).getFullYear() + 1
+  const endYear = new Date(cr.max).getFullYear()
+  const ticks: { pct: number; label: string }[] = []
+  for (let y = startYear; y <= endYear; y++) {
+    const ts = new Date(`${y}-01-01T00:00:00`).getTime()
+    const pct = ((ts - cr.min) / (cr.max - cr.min)) * 100
+    if (pct > 1 && pct < 99) ticks.push({ pct, label: String(y) })
   }
+  return ticks
+})
+
+// video upload dots along the slider — one per video at the right % position
+const videoDots = computed(() => {
+  const cr = contentRange.value
+  if (!cr || !videoList.value.length) return []
+  return videoList.value.map(v => ({
+    pct: Math.max(0, Math.min(100, ((v.ts - cr.min) / (cr.max - cr.min)) * 100)),
+    title: v.title,
+    date: new Date(v.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+  }))
+})
+
+function onSliderMouseDown(e: MouseEvent) {
+  const cr = contentRange.value
+  if (!cr || visibleMin.value == null || visibleMax.value == null || !sliderEl.value) return
+  const rect = sliderEl.value.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+  // 12px tolerance for grabbing a handle
+  const tolPct = (12 / rect.width) * 100
+  if (Math.abs(pct - sliderLeft.value) <= tolPct) {
+    dragMode.value = 'left'
+  } else if (Math.abs(pct - sliderRight.value) <= tolPct) {
+    dragMode.value = 'right'
+  } else if (pct > sliderLeft.value && pct < sliderRight.value) {
+    dragMode.value = 'pan'
+  } else {
+    // click outside: center the current window at the clicked position
+    const halfSpan = (visibleMax.value - visibleMin.value) / 2
+    const clickTs = cr.min + (pct / 100) * (cr.max - cr.min)
+    const newMin = Math.max(cr.min, clickTs - halfSpan)
+    visibleMin.value = newMin
+    visibleMax.value = Math.min(cr.max, newMin + halfSpan * 2)
+    activeQuickRange.value = ''
+    selectedFrom.value = ''
+    selectedTo.value = ''
+    return
+  }
+  dragStartX.value = e.clientX
+  dragStartMin.value = visibleMin.value
+  dragStartMax.value = visibleMax.value
+  e.preventDefault()
+  window.addEventListener('mousemove', onSliderMouseMove)
+  window.addEventListener('mouseup', onSliderMouseUp)
+}
+
+function onSliderMouseMove(e: MouseEvent) {
+  const cr = contentRange.value
+  if (!cr || !dragMode.value || !sliderEl.value) return
+  const trackWidth = sliderEl.value.getBoundingClientRect().width
+  const deltaMs = ((e.clientX - dragStartX.value) / trackWidth) * (cr.max - cr.min)
+  const span = dragStartMax.value - dragStartMin.value
+  const minSpan = 86_400_000 // at least one day
+
+  if (dragMode.value === 'left') {
+    visibleMin.value = Math.max(cr.min, Math.min(dragStartMin.value + deltaMs, dragStartMax.value - minSpan))
+  } else if (dragMode.value === 'right') {
+    visibleMax.value = Math.min(cr.max, Math.max(dragStartMax.value + deltaMs, dragStartMin.value + minSpan))
+  } else {
+    let newMin = dragStartMin.value + deltaMs
+    let newMax = dragStartMax.value + deltaMs
+    if (newMin < cr.min) { newMin = cr.min; newMax = cr.min + span }
+    if (newMax > cr.max) { newMax = cr.max; newMin = cr.max - span }
+    visibleMin.value = newMin
+    visibleMax.value = newMax
+  }
+  activeQuickRange.value = ''
+  selectedFrom.value = ''
+  selectedTo.value = ''
+}
+
+function onSliderMouseUp() {
+  dragMode.value = null
+  window.removeEventListener('mousemove', onSliderMouseMove)
+  window.removeEventListener('mouseup', onSliderMouseUp)
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onSliderMouseMove)
+  window.removeEventListener('mouseup', onSliderMouseUp)
 })
 
 // ─── summary totals — filtered to visible window ────────────────────────────
@@ -608,6 +696,15 @@ const visibleRangeLabel = computed(() => {
   const dr = chartData.value?.date_range
   return dr ? `${dr.min} → ${dr.max}` : ''
 })
+
+// count of data points falling inside the visible window (for the summary footer)
+const visibleDayCount = computed(() => {
+  if (!chartData.value?.dates) return 0
+  const timestamps = chartData.value.dates.map(d => new Date(d + 'T00:00:00').getTime())
+  const min = visibleMin.value
+  const max = visibleMax.value
+  return timestamps.filter(t => (min == null || t >= min - 1) && (max == null || t <= max + 1)).length
+})
 </script>
 
 <template>
@@ -626,15 +723,12 @@ const visibleRangeLabel = computed(() => {
         </div>
 
         <div class="flex items-center gap-3 flex-shrink-0">
-          <label class="flex items-center gap-2 cursor-pointer select-none">
-            <span class="text-sm text-gray-400 whitespace-nowrap">Revenue</span>
-            <button
-              @click="toggleRevenue"
-              :class="['relative flex-shrink-0 w-10 h-5 rounded-full transition-colors duration-200', showRevenue ? 'bg-red-500' : 'bg-slate-700']"
-            >
-              <span :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200', showRevenue ? 'translate-x-5' : 'translate-x-0.5']" />
-            </button>
-          </label>
+          <button @click="toggleRevenue" class="flex items-center gap-2 group" title="Toggle revenue visibility">
+            <span class="text-sm text-gray-300 group-hover:text-white transition whitespace-nowrap">Revenue</span>
+            <div class="relative w-9 h-5 rounded-full transition-colors duration-200" :class="showRevenue ? 'bg-red-500/70' : 'bg-white/15'">
+              <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200" :class="showRevenue ? 'translate-x-4' : 'translate-x-0'" />
+            </div>
+          </button>
         </div>
       </div>
     </nav>
@@ -691,41 +785,27 @@ const visibleRangeLabel = computed(() => {
           >{{ r.label }}</button>
         </div>
 
-        <!-- custom date range toggle -->
-        <button
-          @click="showCustomRange = !showCustomRange; if (!showCustomRange && activeQuickRange === 'Custom') activeQuickRange = ''"
-          :class="['px-3 h-7 text-xs font-medium rounded-lg border transition-all',
-            activeQuickRange === 'Custom' || showCustomRange
-              ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-300'
-              : 'bg-slate-900 border-white/5 text-slate-500 hover:text-white hover:border-slate-600']"
-        >Custom range</button>
-      </div>
-
-      <!-- custom date range inputs ─────────────────────────────────────── -->
-      <div
-        v-if="showCustomRange"
-        class="flex items-center gap-2 mb-3 pl-1 animate-fade-in"
-      >
-        <span class="text-xs text-slate-500">From</span>
-        <input
-          type="date"
-          v-model="customDateFrom"
-          class="bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded-lg px-3 py-1.5 outline-none focus:border-indigo-500 transition-colors"
-        />
-        <span class="text-slate-700 text-sm">→</span>
-        <input
-          type="date"
-          v-model="customDateTo"
-          class="bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded-lg px-3 py-1.5 outline-none focus:border-indigo-500 transition-colors"
-        />
-        <button
-          @click="applyCustomRange"
-          class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors"
-        >Apply</button>
-        <button
-          @click="showCustomRange = false"
-          class="px-2 py-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
-        >✕</button>
+        <!-- from / to month dropdowns — always visible, auto-apply on change -->
+        <div v-if="monthOptions.length" class="flex items-center gap-1.5">
+          <span class="text-xs text-slate-600 whitespace-nowrap hidden sm:block">From</span>
+          <select
+            v-model="selectedFrom"
+            @change="onFromChange"
+            class="bg-slate-900 border border-white/5 text-slate-400 text-xs rounded-lg px-2 h-7 outline-none focus:border-indigo-500/60 transition-colors cursor-pointer"
+          >
+            <option value="">Start</option>
+            <option v-for="opt in fromOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+          <span class="text-slate-700 text-xs">→</span>
+          <select
+            v-model="selectedTo"
+            @change="onToChange"
+            class="bg-slate-900 border border-white/5 text-slate-400 text-xs rounded-lg px-2 h-7 outline-none focus:border-indigo-500/60 transition-colors cursor-pointer"
+          >
+            <option value="">End</option>
+            <option v-for="opt in toOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+        </div>
       </div>
 
       <!-- metric pills ───────────────────────────────────────────────────── -->
@@ -792,54 +872,136 @@ const visibleRangeLabel = computed(() => {
           </ClientOnly>
         </div>
 
-        <!-- timeline scrubber ─────────────────────────────────────────────── -->
-        <!-- visually distinct from the chart above: darker bg, dashed border, left accent -->
-        <div class="rounded-xl border border-dashed border-slate-800 overflow-hidden bg-black/30 mb-4" style="border-left: 2px solid rgba(99,102,241,0.2)">
-          <div class="flex items-center justify-between px-4 pt-2.5 pb-0">
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] font-semibold text-slate-600 uppercase tracking-widest select-none">
-                Timeline
-              </span>
-              <span class="text-[10px] text-slate-700 select-none">— drag handles to zoom</span>
+        <!-- custom timeline slider ────────────────────────────────────────── -->
+        <!-- a thin drag-and-drop range bar — much lighter than a second chart -->
+        <div
+          class="px-5 pt-4 pb-3 mb-4 rounded-xl border border-white/5 bg-slate-900/40 select-none"
+          :class="dragMode === 'pan' ? 'cursor-grabbing' : ''"
+        >
+          <!-- track -->
+          <div
+            ref="sliderEl"
+            class="relative flex items-center"
+            style="height: 28px; overflow: visible"
+            @mousedown="onSliderMouseDown"
+          >
+            <!-- base track line -->
+            <div class="absolute inset-x-0 h-[3px] rounded-full bg-slate-800" />
+
+            <!-- selected window fill -->
+            <div
+              class="absolute h-[3px] rounded-full bg-indigo-500/40"
+              :class="dragMode === 'pan' ? 'cursor-grabbing' : 'cursor-grab'"
+              :style="{ left: sliderLeft + '%', width: sliderWidth + '%' }"
+            />
+
+            <!-- year tick marks -->
+            <div
+              v-for="tick in yearTicks"
+              :key="tick.pct"
+              class="absolute w-px bg-slate-700/60 pointer-events-none"
+              style="height: 6px; top: 50%; transform: translateY(-50%)"
+              :style="{ left: tick.pct + '%' }"
+            />
+
+            <!-- video upload dots -->
+            <div
+              v-for="(dot, i) in videoDots"
+              :key="i"
+              class="absolute w-1.5 h-1.5 rounded-full bg-slate-600 hover:bg-indigo-400 top-1/2 -translate-y-1/2 -translate-x-1/2 transition-colors duration-100 z-10"
+              style="pointer-events: auto; cursor: default"
+              :style="{ left: dot.pct + '%' }"
+              @mouseenter="hoveredVideo = { title: dot.title, date: dot.date, pct: dot.pct }"
+              @mouseleave="hoveredVideo = null"
+            />
+
+            <!-- tooltip for hovered video dot -->
+            <div
+              v-if="hoveredVideo"
+              class="absolute bottom-full mb-3 z-50 pointer-events-none"
+              :style="{ left: hoveredVideo.pct + '%', transform: 'translateX(-50%)' }"
+            >
+              <div class="bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-xs shadow-xl whitespace-nowrap">
+                <div class="text-slate-200 font-medium max-w-[220px] truncate">{{ hoveredVideo.title }}</div>
+                <div class="text-slate-500 mt-0.5">{{ hoveredVideo.date }}</div>
+              </div>
+              <!-- small downward arrow -->
+              <div class="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0" style="border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #1e293b" />
             </div>
-            <span class="text-[10px] text-slate-600 select-none tabular-nums font-mono">
-              {{ visibleRangeLabel }}
+
+            <!-- left handle -->
+            <div
+              class="absolute top-1/2 -translate-y-1/2 w-[3px] rounded-full cursor-ew-resize transition-colors duration-100"
+              style="height: 20px"
+              :class="dragMode === 'left' ? 'bg-indigo-300' : 'bg-indigo-500 hover:bg-indigo-400'"
+              :style="{ left: 'calc(' + sliderLeft + '% - 1.5px)' }"
+            />
+
+            <!-- right handle -->
+            <div
+              class="absolute top-1/2 -translate-y-1/2 w-[3px] rounded-full cursor-ew-resize transition-colors duration-100"
+              style="height: 20px"
+              :class="dragMode === 'right' ? 'bg-indigo-300' : 'bg-indigo-500 hover:bg-indigo-400'"
+              :style="{ left: 'calc(' + sliderRight + '% - 1.5px)' }"
+            />
+          </div>
+
+          <!-- year labels row -->
+          <div v-if="yearTicks.length" class="relative h-4 mt-0.5">
+            <div
+              v-for="tick in yearTicks"
+              :key="tick.label"
+              class="absolute text-[9px] text-slate-700 -translate-x-1/2 pointer-events-none font-mono"
+              :style="{ left: tick.pct + '%' }"
+            >{{ tick.label }}</div>
+          </div>
+
+          <!-- outer edge labels + visible range in center -->
+          <div class="flex justify-between items-center mt-1 text-[10px] font-mono tabular-nums">
+            <span class="text-slate-700">
+              {{ contentRange ? new Date(contentRange.min).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '' }}
+            </span>
+            <span class="text-slate-500">{{ visibleRangeLabel }}</span>
+            <span class="text-slate-700">
+              {{ contentRange ? new Date(contentRange.max).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '' }}
             </span>
           </div>
-          <ClientOnly>
-            <apexchart
-              type="area"
-              height="100"
-              :options="brushChartOptions"
-              :series="brushSeries"
-            />
-            <template #fallback>
-              <div class="h-[100px]" />
-            </template>
-          </ClientOnly>
         </div>
 
-        <!-- summary cards ────────────────────────────────────────────────── -->
-        <!-- values always reflect the currently visible date range above -->
-        <div
-          class="grid gap-3"
-          :style="`grid-template-columns: repeat(${Math.min(selectedMetrics.length, 5)}, minmax(0, 1fr))`"
-        >
+        <!-- summary section ──────────────────────────────────────────────── -->
+        <!-- totals/averages for the currently visible window only -->
+        <div class="bg-slate-900/60 rounded-2xl border border-white/5 p-4">
+          <!-- period header -->
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Summary</span>
+            <span class="text-xs text-slate-500 tabular-nums font-mono">
+              {{ visibleRangeLabel }}
+              <span v-if="visibleDayCount" class="text-slate-600 ml-1">
+                · {{ visibleDayCount }}&nbsp;{{ granularity === 'monthly' ? 'months' : granularity === 'weekly' ? 'weeks' : 'days' }}
+              </span>
+            </span>
+          </div>
+
+          <!-- metric cards -->
           <div
-            v-for="key in selectedMetrics"
-            :key="key"
-            class="bg-slate-900/80 rounded-xl border border-white/5 p-4"
-            :style="{ borderColor: METRICS_CONFIG[key].color + '33' }"
+            class="grid gap-2.5"
+            :style="`grid-template-columns: repeat(${Math.min(selectedMetrics.length, 5)}, minmax(0, 1fr))`"
           >
-            <div class="text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wide">
-              {{ METRICS_CONFIG[key].label }}
-            </div>
-            <div class="text-xl font-bold tabular-nums" :style="{ color: METRICS_CONFIG[key].color }">
-              {{ METRICS_CONFIG[key].fmt(metricTotals[key] ?? null) }}
-            </div>
-            <div class="text-xs text-slate-600 mt-0.5">
-              {{ key === 'ctr' || key === 'rpm' || key === 'avg_view_duration' ? 'average' : 'total' }}
-              · {{ granularity }}
+            <div
+              v-for="key in selectedMetrics"
+              :key="key"
+              class="rounded-xl px-4 py-3 border"
+              :style="{ borderColor: METRICS_CONFIG[key].color + '22', background: METRICS_CONFIG[key].color + '0a' }"
+            >
+              <div class="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-semibold truncate">
+                {{ METRICS_CONFIG[key].label }}
+              </div>
+              <div class="text-xl font-bold tabular-nums leading-none" :style="{ color: METRICS_CONFIG[key].color }">
+                {{ METRICS_CONFIG[key].fmt(metricTotals[key] ?? null) }}
+              </div>
+              <div class="text-[10px] text-slate-600 mt-1.5">
+                {{ ['ctr', 'rpm', 'avg_view_duration'].includes(key) ? 'avg in range' : 'total in range' }}
+              </div>
             </div>
           </div>
         </div>
